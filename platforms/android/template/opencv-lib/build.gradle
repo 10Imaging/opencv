@@ -1,0 +1,78 @@
+apply plugin: 'com.android.library'
+//apply plugin: 'com.android.model.library'
+
+android {
+    compileSdkVersion rootProject.ext.compileSdkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 3100
+        versionName "3.1.0"
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled = false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            debuggable = true
+            ndk {
+                debuggable = true
+            }
+            renderscriptDebuggable = true
+        }
+    }
+    externalNativeBuild {
+        ndkBuild {
+            path "src/main/jni/Android.mk"
+        }
+    }
+    lintOptions {
+        abortOnError = false
+        xmlReport = false
+        quiet = false
+        showAll = true
+    }
+    /*
+    ndk {
+        moduleName = "CVnative"
+        debuggable = true
+        abiFilters.addAll(['armeabi-v7a', 'arm64-v8a'])
+        CFlags.add("-v")
+        cppFlags.add("-v")
+        cppFlags.add("-I" + file("src/main/jni/include").absolutePath)
+        cppFlags.addAll(["-frtti", "-fexceptions"])
+        ldFlags.add("--verbose")
+        stl = "gnustl_shared"
+    }
+    repositories {
+        libs(PrebuiltLibraries) {
+            opencv_java3 {
+                headers.srcDir "src/main/jni/include"
+                binaries.withType(SharedLibraryBinary) {
+                    sharedLibraryFile = file("src/main/jnilibs/${targetPlatform.getName()}/libopencv_java3.so")
+                }
+            }
+        }
+    }
+    */
+    packagingOptions {
+        merge "lib/**/libgnustl_shared.so"
+        merge "lib/**/libc++_shared.so"
+    }
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a", "armeabi-v7a"
+        }
+    }
+}
+
+dependencies {
+    compile "com.android.support:support-v4:${rootProject.ext.supportLibVersion}"
+}
