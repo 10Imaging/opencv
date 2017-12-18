@@ -21,7 +21,7 @@ namespace
     const std::string usage = "Usage : tutorial_HoughCircle_Demo <path_to_input_image>\n";
 
     // initial and max values of the parameters of interests.
-    const int cannyThresholdInitialValue = 200;
+    const int cannyThresholdInitialValue = 100;
     const int accumulatorThresholdInitialValue = 50;
     const int maxAccumulatorThreshold = 200;
     const int maxCannyThreshold = 255;
@@ -55,15 +55,13 @@ int main(int argc, char** argv)
 {
     Mat src, src_gray;
 
-    if (argc < 2)
-    {
-        std::cerr<<"No input image specified\n";
-        std::cout<<usage;
-        return -1;
-    }
-
     // Read the image
-    src = imread( argv[1], IMREAD_COLOR );
+    String imageName("../data/stuff.jpg"); // by default
+    if (argc > 1)
+    {
+       imageName = argv[1];
+    }
+    src = imread( imageName, IMREAD_COLOR );
 
     if( src.empty() )
     {
@@ -90,7 +88,7 @@ int main(int argc, char** argv)
     // infinite loop to display
     // and refresh the content of the output image
     // until the user presses q or Q
-    int key = 0;
+    char key = 0;
     while(key != 'q' && key != 'Q')
     {
         // those paramaters cannot be =0
@@ -102,7 +100,7 @@ int main(int argc, char** argv)
         HoughDetection(src_gray, src, cannyThreshold, accumulatorThreshold);
 
         // get user key
-        key = waitKey(10);
+        key = (char)waitKey(10);
     }
 
     return 0;

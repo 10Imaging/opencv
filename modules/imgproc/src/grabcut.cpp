@@ -47,7 +47,7 @@ using namespace cv;
 
 /*
 This is implementation of image segmentation algorithm GrabCut described in
-"GrabCut — Interactive Foreground Extraction using Iterated Graph Cuts".
+"GrabCut - Interactive Foreground Extraction using Iterated Graph Cuts".
 Carsten Rother, Vladimir Kolmogorov, Andrew Blake.
  */
 
@@ -104,6 +104,7 @@ GMM::GMM( Mat& _model )
     for( int ci = 0; ci < componentsCount; ci++ )
         if( coefs[ci] > 0 )
              calcInverseCovAndDeterm( ci );
+    totalSampleCount = 0;
 }
 
 double GMM::operator()( const Vec3d color ) const
@@ -529,6 +530,8 @@ void cv::grabCut( InputArray _img, InputOutputArray _mask, Rect rect,
                   InputOutputArray _bgdModel, InputOutputArray _fgdModel,
                   int iterCount, int mode )
 {
+    CV_INSTRUMENT_REGION()
+
     Mat img = _img.getMat();
     Mat& mask = _mask.getMatRef();
     Mat& bgdModel = _bgdModel.getMatRef();

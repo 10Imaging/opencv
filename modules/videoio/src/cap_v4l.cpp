@@ -209,7 +209,7 @@ make & enjoy!
 
 #include "precomp.hpp"
 
-#if !defined WIN32 && (defined HAVE_CAMV4L2 || defined HAVE_VIDEOIO)
+#if !defined _WIN32 && (defined HAVE_CAMV4L2 || defined HAVE_VIDEOIO)
 
 #include <stdio.h>
 #include <unistd.h>
@@ -280,6 +280,7 @@ struct CvCaptureCAM_V4L : public CvCapture
    __u32 fps;
    bool convert_rgb;
    bool frame_allocated;
+   bool returnFrame;
 
    /* V4L2 variables */
    buffer buffers[MAX_V4L_BUFFERS + 1];
@@ -453,20 +454,25 @@ static int try_init_v4l2(CvCaptureCAM_V4L* capture, const char *deviceName)
 }
 
 static int autosetup_capture_mode_v4l2(CvCaptureCAM_V4L* capture) {
+    //in case palette is already set and works, no need to setup.
+    if(capture->palette != 0 and try_palette_v4l2(capture)){
+        return 0;
+    }
     __u32 try_order[] = {
             V4L2_PIX_FMT_BGR24,
+            V4L2_PIX_FMT_RGB24,
             V4L2_PIX_FMT_YVU420,
             V4L2_PIX_FMT_YUV411P,
+            V4L2_PIX_FMT_YUYV,
+            V4L2_PIX_FMT_UYVY,
+            V4L2_PIX_FMT_SBGGR8,
+            V4L2_PIX_FMT_SGBRG8,
+            V4L2_PIX_FMT_SN9C10X,
 #ifdef HAVE_JPEG
             V4L2_PIX_FMT_MJPEG,
             V4L2_PIX_FMT_JPEG,
 #endif
-            V4L2_PIX_FMT_YUYV,
-            V4L2_PIX_FMT_UYVY,
-            V4L2_PIX_FMT_SN9C10X,
-            V4L2_PIX_FMT_SBGGR8,
-            V4L2_PIX_FMT_SGBRG8,
-            V4L2_PIX_FMT_RGB24
+            V4L2_PIX_FMT_Y16
     };
 
     for (size_t i = 0; i < sizeof(try_order) / sizeof(__u32); i++) {
@@ -558,6 +564,7 @@ static int v4l2_num_channels(__u32 palette) {
     case V4L2_PIX_FMT_YVU420:
     case V4L2_PIX_FMT_MJPEG:
     case V4L2_PIX_FMT_JPEG:
+    case V4L2_PIX_FMT_Y16:
         return 1;
     case V4L2_PIX_FMT_YUYV:
     case V4L2_PIX_FMT_UYVY:
@@ -573,6 +580,7 @@ static int v4l2_num_channels(__u32 palette) {
 static void v4l2_create_frame(CvCaptureCAM_V4L *capture) {
     CvSize size(capture->form.fmt.pix.width, capture->form.fmt.pix.height);
     int channels = 3;
+    int depth = IPL_DEPTH_8U;
 
     if (!capture->convert_rgb) {
         channels = v4l2_num_channels(capture->palette);
@@ -585,11 +593,16 @@ static void v4l2_create_frame(CvCaptureCAM_V4L *capture) {
         case V4L2_PIX_FMT_YVU420:
             size.height = size.height * 3 / 2; // "1.5" channels
             break;
+        case V4L2_PIX_FMT_Y16:
+            if(!capture->convert_rgb){
+                depth = IPL_DEPTH_16U;
+            }
+            break;
         }
     }
 
     /* Set up Image data */
-    cvInitImageHeader(&capture->frame, size, IPL_DEPTH_8U, channels);
+    cvInitImageHeader(&capture->frame, size, depth, channels);
 
     /* Allocate space for pixelformat we convert to.
      * If we do not convert frame is just points to the buffer
@@ -808,6 +821,7 @@ bool CvCaptureCAM_V4L::open(const char* _deviceName)
     fps = DEFAULT_V4L_FPS;
     convert_rgb = true;
     deviceName = _deviceName;
+    returnFrame = true;
 
     return _capture_V4L2(this) == 1;
 }
@@ -835,6 +849,7 @@ static int read_frame_v4l2(CvCaptureCAM_V4L* capture) {
 
         default:
             /* display the error and stop processing */
+            capture->returnFrame = false;
             perror ("VIDIOC_DQBUF");
             return -1;
         }
@@ -849,11 +864,11 @@ static int read_frame_v4l2(CvCaptureCAM_V4L* capture) {
    //printf("got data in buff %d, len=%d, flags=0x%X, seq=%d, used=%d)\n",
    //	  buf.index, buf.length, buf.flags, buf.sequence, buf.bytesused);
 
-   if (-1 == ioctl (capture->deviceHandle, VIDIOC_QBUF, &buf))
-       perror ("VIDIOC_QBUF");
-
    //set timestamp in capture struct to be timestamp of most recent frame
    capture->timestamp = buf.timestamp;
+
+   if (-1 == ioctl (capture->deviceHandle, VIDIOC_QBUF, &buf))
+       perror ("VIDIOC_QBUF");
 
    return 1;
 }
@@ -1089,6 +1104,15 @@ uyvy_to_rgb24 (int width, int height, unsigned char *src, unsigned char *dst)
     cvtColor(Mat(height, width, CV_8UC2, src), Mat(height, width, CV_8UC3, dst),
              COLOR_YUV2BGR_UYVY);
 }
+
+static inline void
+y16_to_rgb24 (int width, int height, unsigned char* src, unsigned char* dst)
+{
+    Mat gray8;
+    Mat(height, width, CV_16UC1, src).convertTo(gray8, CV_8U, 0.00390625);
+    cvtColor(gray8,Mat(height, width, CV_8UC3, dst),COLOR_GRAY2BGR);
+}
+
 #ifdef HAVE_JPEG
 
 /* convert from mjpeg to rgb24 */
@@ -1546,9 +1570,24 @@ static IplImage* icvRetrieveFrameCAM_V4L( CvCaptureCAM_V4L* capture, int) {
                 (unsigned char*)capture->buffers[(capture->bufferIndex+1) % capture->req.count].start,
                 (unsigned char*)capture->frame.imageData);
         break;
+    case V4L2_PIX_FMT_Y16:
+        if(capture->convert_rgb){
+            y16_to_rgb24(capture->form.fmt.pix.width,
+                         capture->form.fmt.pix.height,
+                         (unsigned char*)capture->buffers[capture->bufferIndex].start,
+                         (unsigned char*)capture->frame.imageData);
+        }else{
+            memcpy((char *)capture->frame.imageData,
+                   (char *)capture->buffers[capture->bufferIndex].start,
+                   capture->frame.imageSize);
+        }
+        break;
     }
 
-    return(&capture->frame);
+    if (capture->returnFrame)
+        return(&capture->frame);
+    else
+        return 0;
 }
 
 static inline __u32 capPropertyToV4L2(int prop) {
@@ -1580,6 +1619,7 @@ static double icvGetPropertyCAM_V4L (const CvCaptureCAM_V4L* capture,
                                      int property_id ) {
   {
       v4l2_format form;
+      memset(&form, 0, sizeof(v4l2_format));
       form.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
       if (-1 == ioctl (capture->deviceHandle, VIDIOC_G_FMT, &form)) {
           /* display an error message, and return an error code */
@@ -1596,7 +1636,7 @@ static double icvGetPropertyCAM_V4L (const CvCaptureCAM_V4L* capture,
       case CV_CAP_PROP_MODE:
           return capture->palette;
       case CV_CAP_PROP_FORMAT:
-          return CV_MAKETYPE(CV_8U, capture->frame.nChannels);
+          return CV_MAKETYPE(IPL2CV_DEPTH(capture->frame.depth), capture->frame.nChannels);
       case CV_CAP_PROP_CONVERT_RGB:
           return capture->convert_rgb;
       }
@@ -1738,6 +1778,7 @@ static int icvSetPropertyCAM_V4L( CvCaptureCAM_V4L* capture,
     switch (property_id) {
     case CV_CAP_PROP_FRAME_WIDTH:
         width = cvRound(value);
+        retval = width != 0;
         if(width !=0 && height != 0) {
             capture->width = width;
             capture->height = height;
@@ -1747,6 +1788,7 @@ static int icvSetPropertyCAM_V4L( CvCaptureCAM_V4L* capture,
         break;
     case CV_CAP_PROP_FRAME_HEIGHT:
         height = cvRound(value);
+        retval = height != 0;
         if(width !=0 && height != 0) {
             capture->width = width;
             capture->height = height;
@@ -1763,6 +1805,20 @@ static int icvSetPropertyCAM_V4L( CvCaptureCAM_V4L* capture,
         possible = v4l2_num_channels(capture->palette);
         capture->convert_rgb = bool(value) && possible;
         retval = possible || !bool(value);
+        break;
+    case CV_CAP_PROP_FOURCC:
+        {
+            __u32 old_palette = capture->palette;
+            __u32 new_palette = static_cast<__u32>(value);
+            capture->palette = new_palette;
+            if (v4l2_reset(capture)) {
+                retval = true;
+            } else {
+                capture->palette = old_palette;
+                v4l2_reset(capture);
+                retval = false;
+            }
+        }
         break;
     default:
         retval = icvSetControl(capture, property_id, value);
@@ -1802,7 +1858,7 @@ static void icvCloseCAM_V4L( CvCaptureCAM_V4L* capture ){
      if (capture->deviceHandle != -1)
        close(capture->deviceHandle);
 
-     if (capture->frame.imageData)
+     if (capture->frame_allocated && capture->frame.imageData)
          cvFree(&capture->frame.imageData);
 
      capture->deviceName.clear(); // flag that the capture is closed

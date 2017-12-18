@@ -34,10 +34,10 @@ int main( int argc, char** argv )
         return -1;
     }
 
-    namedWindow( "Linear-Polar", WINDOW_NORMAL );
-    namedWindow( "Log-Polar", WINDOW_NORMAL );
-    namedWindow( "Recovered Linear-Polar", WINDOW_NORMAL );
-    namedWindow( "Recovered Log-Polar", WINDOW_NORMAL );
+    namedWindow( "Linear-Polar", WINDOW_AUTOSIZE );
+    namedWindow( "Log-Polar", WINDOW_AUTOSIZE);
+    namedWindow( "Recovered Linear-Polar", WINDOW_AUTOSIZE);
+    namedWindow( "Recovered Log-Polar", WINDOW_AUTOSIZE);
 
     moveWindow( "Linear-Polar", 20,20 );
     moveWindow( "Log-Polar", 700,20 );
@@ -53,7 +53,7 @@ int main( int argc, char** argv )
             break;
 
         Point2f center( (float)frame.cols / 2, (float)frame.rows / 2 );
-        double M = (double)frame.cols / 8;
+        double M = 70;
 
         logPolar(frame,log_polar_img, center, M, INTER_LINEAR + WARP_FILL_OUTLIERS);
         linearPolar(frame,lin_polar_img, center, M, INTER_LINEAR + WARP_FILL_OUTLIERS);

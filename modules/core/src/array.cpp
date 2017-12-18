@@ -374,7 +374,7 @@ cvGetMatND( const CvArr* arr, CvMatND* matnd, int* coi )
 // returns number of dimensions to iterate.
 /*
 Checks whether <count> arrays have equal type, sizes (mask is optional array
-that needs to have the same size, but 8uC1 or 8sC1 type).
+that needs to have the same size, but 8uC1 or 8sC1 type - feature has been disabled).
 Returns number of dimensions to iterate through:
 0 means that all arrays are continuous,
 1 means that all arrays are vectors of continuous arrays etc.
@@ -399,17 +399,16 @@ cvInitNArrayIterator( int count, CvArr** arrs,
     if( !iterator )
         CV_Error( CV_StsNullPtr, "Iterator pointer is NULL" );
 
-    for( i = 0; i <= count; i++ )
+    if (mask)
+        CV_Error( CV_StsBadArg, "Iterator with mask is not supported" );
+
+    for( i = 0; i < count; i++ )
     {
-        const CvArr* arr = i < count ? arrs[i] : mask;
+        const CvArr* arr = arrs[i];
         CvMatND* hdr;
 
         if( !arr )
-        {
-            if( i < count )
-                CV_Error( CV_StsNullPtr, "Some of required array pointers is NULL" );
-            break;
-        }
+            CV_Error( CV_StsNullPtr, "Some of required array pointers is NULL" );
 
         if( CV_IS_MATND( arr ))
             hdr = (CvMatND*)arr;
@@ -429,31 +428,23 @@ cvInitNArrayIterator( int count, CvArr** arrs,
                 CV_Error( CV_StsUnmatchedSizes,
                           "Number of dimensions is the same for all arrays" );
 
-            if( i < count )
+            switch( flags & (CV_NO_DEPTH_CHECK|CV_NO_CN_CHECK))
             {
-                switch( flags & (CV_NO_DEPTH_CHECK|CV_NO_CN_CHECK))
-                {
-                case 0:
-                    if( !CV_ARE_TYPES_EQ( hdr, hdr0 ))
-                        CV_Error( CV_StsUnmatchedFormats,
-                                  "Data type is not the same for all arrays" );
-                    break;
-                case CV_NO_DEPTH_CHECK:
-                    if( !CV_ARE_CNS_EQ( hdr, hdr0 ))
-                        CV_Error( CV_StsUnmatchedFormats,
-                                  "Number of channels is not the same for all arrays" );
-                    break;
-                case CV_NO_CN_CHECK:
-                    if( !CV_ARE_CNS_EQ( hdr, hdr0 ))
-                        CV_Error( CV_StsUnmatchedFormats,
-                                  "Depth is not the same for all arrays" );
-                    break;
-                }
-            }
-            else
-            {
-                if( !CV_IS_MASK_ARR( hdr ))
-                    CV_Error( CV_StsBadMask, "Mask should have 8uC1 or 8sC1 data type" );
+            case 0:
+                if( !CV_ARE_TYPES_EQ( hdr, hdr0 ))
+                    CV_Error( CV_StsUnmatchedFormats,
+                              "Data type is not the same for all arrays" );
+                break;
+            case CV_NO_DEPTH_CHECK:
+                if( !CV_ARE_CNS_EQ( hdr, hdr0 ))
+                    CV_Error( CV_StsUnmatchedFormats,
+                              "Number of channels is not the same for all arrays" );
+                break;
+            case CV_NO_CN_CHECK:
+                if( !CV_ARE_CNS_EQ( hdr, hdr0 ))
+                    CV_Error( CV_StsUnmatchedFormats,
+                              "Depth is not the same for all arrays" );
+                break;
             }
 
             if( !(flags & CV_NO_SIZE_CHECK) )
@@ -545,7 +536,7 @@ cvCreateSparseMat( int dims, const int* sizes, int type )
     if( pix_size == 0 )
         CV_Error( CV_StsUnsupportedFormat, "invalid array data type" );
 
-    if( dims <= 0 || dims > CV_MAX_DIM_HEAP )
+    if( dims <= 0 || dims > CV_MAX_DIM )
         CV_Error( CV_StsOutOfRange, "bad number of dimensions" );
 
     if( !sizes )
@@ -834,6 +825,9 @@ cvCreateData( CvArr* arr )
 
         if( !CvIPL.allocateData )
         {
+            const int64 imageSize_tmp = (int64)img->widthStep*(int64)img->height;
+            if( (int64)img->imageSize != imageSize_tmp )
+                CV_Error( CV_StsNoMem, "Overflow for imageSize" );
             img->imageData = img->imageDataOrigin =
                         (char*)cvAlloc( (size_t)img->imageSize );
         }
@@ -941,7 +935,10 @@ cvSetData( CvArr* arr, void* data, int step )
             img->widthStep = min_step;
         }
 
-        img->imageSize = img->widthStep * img->height;
+        const int64 imageSize_tmp = (int64)img->widthStep*(int64)img->height;
+        img->imageSize = (int)imageSize_tmp;
+        if( (int64)img->imageSize != imageSize_tmp )
+            CV_Error( CV_StsNoMem, "Overflow for imageSize" );
         img->imageData = img->imageDataOrigin = (char*)data;
 
         if( (((int)(size_t)data | step) & 7) == 0 &&
@@ -1833,6 +1830,7 @@ cvPtr2D( const CvArr* arr, int y, int x, int* _type )
     }
     else if( CV_IS_SPARSE_MAT( arr ))
     {
+        CV_Assert(((CvSparseMat*)arr)->dims == 2);
         int idx[] = { y, x };
         ptr = icvGetNodePtr( (CvSparseMat*)arr, idx, _type, 1, 0 );
     }
@@ -2958,7 +2956,10 @@ cvInitImageHeader( IplImage * image, CvSize size, int depth,
     image->widthStep = (((image->width * image->nChannels *
          (image->depth & ~IPL_DEPTH_SIGN) + 7)/8)+ align - 1) & (~(align - 1));
     image->origin = origin;
-    image->imageSize = image->widthStep * image->height;
+    const int64 imageSize_tmp = (int64)image->widthStep*(int64)image->height;
+    image->imageSize = (int)imageSize_tmp;
+    if( (int64)image->imageSize != imageSize_tmp )
+        CV_Error( CV_StsNoMem, "Overflow for imageSize" );
 
     return image;
 }

@@ -301,3 +301,9 @@ TEST( Features2d_Detector_AKAZE, regression )
     CV_FeatureDetectorTest test( "detector-akaze", AKAZE::create() );
     test.safe_run();
 }
+
+TEST( Features2d_Detector_AKAZE_DESCRIPTOR_KAZE, regression )
+{
+    CV_FeatureDetectorTest test( "detector-akaze-with-kaze-desc", AKAZE::create(AKAZE::DESCRIPTOR_KAZE) );
+    test.safe_run();
+}

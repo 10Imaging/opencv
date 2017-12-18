@@ -44,10 +44,6 @@
 
 #ifdef HAVE_OPENNI2
 
-#if defined TBB_INTERFACE_VERSION && TBB_INTERFACE_VERSION < 5000
-# undef HAVE_TBB
-#endif
-
 #include <queue>
 
 #ifndef i386
@@ -613,7 +609,7 @@ bool CvCapture_OpenNI2::setDepthGeneratorProperty( int propIdx, double propValue
                 if ( streams[CV_COLOR_STREAM].isValid() )
                 {
                     openni::ImageRegistrationMode mode = propValue != 0.0 ? openni::IMAGE_REGISTRATION_DEPTH_TO_COLOR : openni::IMAGE_REGISTRATION_OFF;
-                    if( !device.getImageRegistrationMode() == mode )
+                    if( device.getImageRegistrationMode() != mode )
                     {
                         if (device.isImageRegistrationModeSupported(mode))
                         {
@@ -1086,7 +1082,7 @@ CvCapture* cvCreateCameraCapture_OpenNI2( int index )
     return 0;
 }
 
-CvCapture* cvCreateFileCapture_OpenNI( const char* filename )
+CvCapture* cvCreateFileCapture_OpenNI2( const char* filename )
 {
     CvCapture_OpenNI2* capture = new CvCapture_OpenNI2( filename );
 

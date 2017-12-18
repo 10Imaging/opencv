@@ -28,16 +28,6 @@ public:
     void workBegin();
     void workEnd();
     string workFps() const;
-    string message() const;
-
-
-// This function test if gpu_rst matches cpu_rst.
-// If the two vectors are not equal, it will return the difference in vector size
-// Else if will return
-// (total diff of each cpu and gpu rects covered pixels)/(total cpu rects covered pixels)
-    double checkRectSimilarity(Size sz,
-                               std::vector<Rect>& cpu_rst,
-                               std::vector<Rect>& gpu_rst);
 private:
     App operator=(App&);
 
@@ -71,7 +61,7 @@ int main(int argc, char** argv)
         "{ h help      |                | print help message }"
         "{ i input     |                | specify input image}"
         "{ c camera    | -1             | enable camera capturing }"
-        "{ v video     | ../data/768x576.avi | use video as input }"
+        "{ v video     | ../data/vtest.avi | use video as input }"
         "{ g gray      |                | convert image to gray one or not}"
         "{ s scale     | 1.0            | resize the image before detect}"
         "{ o output    |                | specify output path when input is images}";
@@ -201,7 +191,7 @@ void App::run()
             if (abs(scale-1.0)>0.001)
             {
                 Size sz((int)((double)img_aux.cols/resize_scale), (int)((double)img_aux.rows/resize_scale));
-                resize(img_aux, img, sz);
+                resize(img_aux, img, sz, 0, 0, INTER_LINEAR_EXACT);
             }
             else img = img_aux;
             img.copyTo(img_to_show);

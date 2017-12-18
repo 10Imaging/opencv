@@ -2,6 +2,9 @@
 
 import datetime
 from run_utils import *
+from run_long import LONG_TESTS_DEBUG_VALGRIND, longTestFilter
+
+timestamp = datetime.datetime.now()
 
 class TestSuite(object):
     def __init__(self, options, cache):
@@ -19,7 +22,8 @@ class TestSuite(object):
             res.append("CUDA")
         return res
 
-    def getLogName(self, app, timestamp):
+    def getLogBaseName(self, app):
+        global timestamp
         app = self.getAlias(app)
         rev = self.cache.getGitVersion()
         if isinstance(timestamp, datetime.datetime):
@@ -33,7 +37,10 @@ class TestSuite(object):
             lname = "_".join([p for p in pieces if p])
             lname = re.sub(r'[\(\)\[\]\s,]', '_', lname)
             l = re.sub(r'_+', '_', lname)
-        return l + ".xml"
+        return l
+
+    def getLogName(self, app):
+        return self.getLogBaseName(app) + '.xml'
 
     def listTests(self, short = False, main = False):
         if len(self.tests) == 0:
@@ -85,8 +92,8 @@ class TestSuite(object):
         return set(res)
 
     def isTest(self, fullpath):
-        if fullpath == "java":
-            return True
+        if fullpath in ['java', 'python2', 'python3']:
+            return self.options.mode == 'test'
         if not os.path.isfile(fullpath):
             return False
         if self.cache.getOS() == "nt" and not fullpath.endswith(".exe"):
@@ -96,11 +103,24 @@ class TestSuite(object):
     def wrapInValgrind(self, cmd = []):
         if self.options.valgrind:
             res = ['valgrind']
-            if self.options.valgrind_supp:
-                res.append("--suppressions=%s" % self.options.valgrind_supp)
+            supp = self.options.valgrind_supp or []
+            for f in supp:
+                if os.path.isfile(f):
+                    res.append("--suppressions=%s" % f)
+                else:
+                    print("WARNING: Valgrind suppression file is missing, SKIP: %s" % f)
             res.extend(self.options.valgrind_opt)
-            return res + cmd
+            has_gtest_filter = next((True for x in cmd if x.startswith('--gtest_filter=')), False)
+            return res + cmd + ([longTestFilter(LONG_TESTS_DEBUG_VALGRIND)] if not has_gtest_filter else [])
         return cmd
+
+    def tryCommand(self, cmd):
+        try:
+            if 0 == execute(cmd, cwd = workingDir):
+                return True
+        except:
+            pass
+        return False
 
     def runTest(self, path, logfile, workingDir, args = []):
         args = args[:]
@@ -109,14 +129,45 @@ class TestSuite(object):
             cmd = [self.cache.ant_executable, "-Dopencv.build.type=%s" % self.cache.build_type, "buildAndTest"]
             ret = execute(cmd, cwd = self.cache.java_test_binary_dir + "/.build")
             return None, ret
+        elif path in ['python2', 'python3']:
+            executable = os.getenv('OPENCV_PYTHON_BINARY', None)
+            if executable is None:
+                executable = path
+                if not self.tryCommand([executable, '--version']):
+                    executable = 'python'
+            cmd = [executable, self.cache.opencv_home + '/modules/python/test/test.py', '--repo', self.cache.opencv_home, '-v'] + args
+            module_suffix = '' if not 'Visual Studio' in self.cache.cmake_generator else '/' + self.cache.build_type
+            env = {}
+            env['PYTHONPATH'] = self.cache.opencv_build + '/lib' + module_suffix + os.pathsep + os.getenv('PYTHONPATH', '')
+            if self.cache.getOS() == 'nt':
+                env['PATH'] = self.cache.opencv_build + '/bin' + module_suffix + os.pathsep + os.getenv('PATH', '')
+            else:
+                env['LD_LIBRARY_PATH'] = self.cache.opencv_build + '/bin' + os.pathsep + os.getenv('LD_LIBRARY_PATH', '')
+            ret = execute(cmd, cwd = workingDir, env = env)
+            return None, ret
         else:
             if isColorEnabled(args):
                 args.append("--gtest_color=yes")
             cmd = self.wrapInValgrind([exe] + args)
+            env = {}
+            if not self.options.valgrind and self.options.trace:
+                env['OPENCV_TRACE'] = '1'
+                env['OPENCV_TRACE_LOCATION'] = 'OpenCVTrace-{}'.format(self.getLogBaseName(exe))
+                env['OPENCV_TRACE_SYNC_OPENCL'] = '1'
             tempDir = TempEnvDir('OPENCV_TEMP_PATH', "__opencv_temp.")
             tempDir.init()
             log.warning("Run: %s" % " ".join(cmd))
-            ret = execute(cmd, cwd = workingDir)
+            ret = execute(cmd, cwd = workingDir, env=env)
+            try:
+                if not self.options.valgrind and self.options.trace and int(self.options.trace_dump) >= 0:
+                    import trace_profiler
+                    trace = trace_profiler.Trace(env['OPENCV_TRACE_LOCATION']+'.txt')
+                    trace.process()
+                    trace.dump(max_entries=int(self.options.trace_dump))
+            except:
+                import traceback
+                traceback.print_exc()
+                pass
             tempDir.clean()
             hostlogpath = os.path.join(workingDir, logfile)
             if os.path.isfile(hostlogpath):
@@ -132,7 +183,6 @@ class TestSuite(object):
         args = args[:]
         logs = []
         test_list = self.getTestList(tests, black)
-        date = datetime.datetime.now()
         if len(test_list) != 1:
             args = [a for a in args if not a.startswith("--gtest_output=")]
         ret = 0
@@ -140,12 +190,15 @@ class TestSuite(object):
             more_args = []
             exe = self.getTest(test)
 
-            userlog = [a for a in args if a.startswith("--gtest_output=")]
-            if len(userlog) == 0:
-                logname = self.getLogName(exe, date)
-                more_args.append("--gtest_output=xml:" + logname)
+            if exe in ["java", "python2", "python3"]:
+                logname = None
             else:
-                logname = userlog[0][userlog[0].find(":")+1:]
+                userlog = [a for a in args if a.startswith("--gtest_output=")]
+                if len(userlog) == 0:
+                    logname = self.getLogName(exe)
+                    more_args.append("--gtest_output=xml:" + logname)
+                else:
+                    logname = userlog[0][userlog[0].find(":")+1:]
 
             log.debug("Running the test: %s (%s) ==> %s in %s", exe, args + more_args, logname, workingDir)
             if self.options.dry_run:

@@ -134,7 +134,7 @@ PARAM_TEST_CASE(ArithmTestBase, MatDepth, Channels, bool)
         use_roi = GET_PARAM(2);
     }
 
-    virtual void generateTestData(bool with_val_in_range = false)
+    void generateTestData(bool with_val_in_range = false)
     {
         const int type = CV_MAKE_TYPE(depth, cn);
 
@@ -331,7 +331,7 @@ OCL_TEST_P(Mul, Mat_Scale)
         OCL_OFF(cv::multiply(src1_roi, src2_roi, dst1_roi, val[0]));
         OCL_ON(cv::multiply(usrc1_roi, usrc2_roi, udst1_roi, val[0]));
 
-#ifdef ANDROID
+#ifdef __ANDROID__
         Near(udst1_roi.depth() >= CV_32F ? 2e-1 : 1);
 #else
         Near(udst1_roi.depth() >= CV_32F ? 1e-3 : 1);
@@ -447,8 +447,8 @@ OCL_TEST_P(Min, Mat)
     {
         generateTestData();
 
-        OCL_OFF(cv::max(src1_roi, src2_roi, dst1_roi));
-        OCL_ON(cv::max(usrc1_roi, usrc2_roi, udst1_roi));
+        OCL_OFF(cv::min(src1_roi, src2_roi, dst1_roi));
+        OCL_ON(cv::min(usrc1_roi, usrc2_roi, udst1_roi));
         Near(0);
     }
 }
@@ -461,8 +461,8 @@ OCL_TEST_P(Max, Mat)
     {
         generateTestData();
 
-        OCL_OFF(cv::min(src1_roi, src2_roi, dst1_roi));
-        OCL_ON(cv::min(usrc1_roi, usrc2_roi, udst1_roi));
+        OCL_OFF(cv::max(src1_roi, src2_roi, dst1_roi));
+        OCL_ON(cv::max(usrc1_roi, usrc2_roi, udst1_roi));
         Near(0);
     }
 }
@@ -897,7 +897,7 @@ struct RepeatTestCase :
 {
     int nx, ny;
 
-    virtual void generateTestData()
+    void generateTestData()
     {
         const int type = CV_MAKE_TYPE(depth, cn);
 
@@ -1495,7 +1495,7 @@ PARAM_TEST_CASE(InRange, MatDepth, Channels, bool /*Scalar or not*/, bool /*Roi*
         use_roi = GET_PARAM(3);
     }
 
-    virtual void generateTestData()
+    void generateTestData()
     {
         const int type = CV_MAKE_TYPE(depth, cn);
 
@@ -1574,7 +1574,7 @@ PARAM_TEST_CASE(ConvertScaleAbs, MatDepth, Channels, bool)
         use_roi = GET_PARAM(2);
     }
 
-    virtual void generateTestData()
+    void generateTestData()
     {
         const int stype = CV_MAKE_TYPE(depth, cn);
         const int dtype = CV_MAKE_TYPE(CV_8U, cn);
@@ -1614,6 +1614,68 @@ OCL_TEST_P(ConvertScaleAbs, Mat)
     }
 }
 
+//////////////////////////////// ConvertFp16 ////////////////////////////////////////////////
+
+PARAM_TEST_CASE(ConvertFp16, Channels, bool)
+{
+    int cn;
+    bool fromHalf;
+    cv::Scalar val;
+
+    TEST_DECLARE_INPUT_PARAMETER(src);
+    TEST_DECLARE_OUTPUT_PARAMETER(dst);
+
+    virtual void SetUp()
+    {
+        cn = GET_PARAM(0);
+        fromHalf = GET_PARAM(1);
+    }
+
+    void generateTestData()
+    {
+        const int stype = CV_MAKE_TYPE(fromHalf ? CV_32F : CV_16S, cn);
+        const int dtype = CV_MAKE_TYPE(fromHalf ? CV_16S : CV_32F, cn);
+
+        Size roiSize = randomSize(1, MAX_VALUE);
+        Border srcBorder = randomBorder(0, 0);
+        randomSubMat(src, src_roi, roiSize, srcBorder, stype, -11, 11); // FIXIT: Test with minV, maxV
+        if (stype == CV_MAKE_TYPE(CV_16S, cn)) // eliminate NaN/Inf FP16 values
+        {
+            RNG dataRng(rng.next());
+            Mat src_i32 = cvtest::randomMat(dataRng, roiSize, CV_MAKE_TYPE(CV_32S, cn), 0, 0x7c00, false);
+            Mat shift_i32 = cvtest::randomMat(dataRng, roiSize, src_i32.type(), -1, 1, false); // values: -1, 0
+            src_i32 = src_i32 + (shift_i32 * 0x8000);
+            src_i32.convertTo(src_roi, stype);
+        }
+
+        Border dstBorder = randomBorder(0, 0);
+        randomSubMat(dst, dst_roi, roiSize, dstBorder, dtype, 5, 16);
+
+        UMAT_UPLOAD_INPUT_PARAMETER(src);
+        UMAT_UPLOAD_OUTPUT_PARAMETER(dst);
+    }
+
+    void Near(double threshold = 0.)
+    {
+        OCL_EXPECT_MATS_NEAR(dst, threshold);
+    }
+
+};
+
+
+OCL_TEST_P(ConvertFp16, Mat)
+{
+    for (int j = 0; j < test_loop_times; j++)
+    {
+        generateTestData();
+
+        OCL_OFF(cv::convertFp16(src_roi, dst_roi));
+        OCL_ON(cv::convertFp16(usrc_roi, udst_roi));
+
+        Near(1);
+    }
+}
+
 //////////////////////////////// ScaleAdd ////////////////////////////////////////////////
 
 typedef ArithmTestBase ScaleAdd;
@@ -1647,7 +1709,7 @@ PARAM_TEST_CASE(PatchNaNs, Channels, bool)
         use_roi = GET_PARAM(1);
     }
 
-    virtual void generateTestData()
+    void generateTestData()
     {
         const int type = CV_MAKE_TYPE(CV_32F, cn);
 
@@ -1727,7 +1789,7 @@ PARAM_TEST_CASE(Reduce, std::pair<MatDepth, MatDepth>, Channels, int, bool)
         use_roi = GET_PARAM(3);
     }
 
-    virtual void generateTestData()
+    void generateTestData()
     {
         const int stype = CV_MAKE_TYPE(sdepth, cn);
         dtype = CV_MAKE_TYPE(ddepth, cn);
@@ -1844,6 +1906,7 @@ OCL_INSTANTIATE_TEST_CASE_P(Arithm, Sqrt, Combine(::testing::Values(CV_32F, CV_6
 OCL_INSTANTIATE_TEST_CASE_P(Arithm, Normalize, Combine(OCL_ALL_DEPTHS, Values(Channels(1)), Bool()));
 OCL_INSTANTIATE_TEST_CASE_P(Arithm, InRange, Combine(OCL_ALL_DEPTHS, OCL_ALL_CHANNELS, Bool(), Bool()));
 OCL_INSTANTIATE_TEST_CASE_P(Arithm, ConvertScaleAbs, Combine(OCL_ALL_DEPTHS, OCL_ALL_CHANNELS, Bool()));
+OCL_INSTANTIATE_TEST_CASE_P(Arithm, ConvertFp16, Combine(OCL_ALL_CHANNELS, Bool()));
 OCL_INSTANTIATE_TEST_CASE_P(Arithm, ScaleAdd, Combine(OCL_ALL_DEPTHS, OCL_ALL_CHANNELS, Bool()));
 OCL_INSTANTIATE_TEST_CASE_P(Arithm, PatchNaNs, Combine(OCL_ALL_CHANNELS, Bool()));
 OCL_INSTANTIATE_TEST_CASE_P(Arithm, Psnr, Combine(::testing::Values((MatDepth)CV_8U), OCL_ALL_CHANNELS, Bool()));

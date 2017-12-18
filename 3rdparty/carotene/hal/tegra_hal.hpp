@@ -67,7 +67,7 @@
                  size_t src2_step;
 
 #define DST_ARG1 DT * dst1_data_, size_t dst1_step_,
-#define DST_STORE1 dst1_data(dst1_data_), dst1_step(dst1_step_), 
+#define DST_STORE1 dst1_data(dst1_data_), dst1_step(dst1_step_),
 #define DST_VAR1 DT * dst1_data; \
                  size_t dst1_step;
 
@@ -1073,7 +1073,7 @@ struct FilterCtx
 inline int TEGRA_FILTERINIT(cvhalFilter2D **context, uchar *kernel_data, size_t kernel_step, int kernel_type, int kernel_width, int kernel_height,
                             int max_width, int max_height, int src_type, int dst_type, int borderType, double delta, int anchor_x, int anchor_y, bool allowSubmatrix, bool allowInplace)
 {
-    if(!context || !kernel_data || allowSubmatrix || allowInplace || 
+    if(!context || !kernel_data || allowSubmatrix || allowInplace ||
        src_type != CV_8UC1 || dst_type != CV_8UC1 ||
        delta != 0 || anchor_x != kernel_width / 2 || anchor_y != kernel_height / 2 )
         return CV_HAL_ERROR_NOT_IMPLEMENTED;
@@ -1105,7 +1105,7 @@ inline int TEGRA_FILTERINIT(cvhalFilter2D **context, uchar *kernel_data, size_t 
         return CV_HAL_ERROR_NOT_IMPLEMENTED;
     }
 
-    if(!CAROTENE_NS::isConvolutionSupported(CAROTENE_NS::Size2D(max_width, max_height), ctx->ksize, ctx->border))    
+    if(!CAROTENE_NS::isConvolutionSupported(CAROTENE_NS::Size2D(max_width, max_height), ctx->ksize, ctx->border))
     {
         delete ctx;
         return CV_HAL_ERROR_NOT_IMPLEMENTED;
@@ -1178,12 +1178,12 @@ struct SepFilterCtx
     CAROTENE_NS::BORDER_MODE border;
 };
 inline int TEGRA_SEPFILTERINIT(cvhalFilter2D **context, int src_type, int dst_type, int kernel_type,
-                               uchar *kernelx_data, size_t             , int kernelx_width, int kernelx_height,
-                               uchar *kernely_data, size_t kernely_step, int kernely_width, int kernely_height,
+                               uchar *kernelx_data, int kernelx_length,
+                               uchar *kernely_data, int kernely_length,
                                int anchor_x, int anchor_y, double delta, int borderType)
 {
     if(!context || !kernelx_data || !kernely_data || src_type != CV_8UC1 || dst_type != CV_16SC1 ||
-       !(kernelx_width == 3 && kernelx_height == 1) || !(kernely_width == 1 && kernely_height == 3) ||
+       kernelx_length != 3 || kernely_length != 3 ||
        delta != 0 || anchor_x != 1 || anchor_y != 1)
         return CV_HAL_ERROR_NOT_IMPLEMENTED;
 
@@ -1212,7 +1212,7 @@ inline int TEGRA_SEPFILTERINIT(cvhalFilter2D **context, int src_type, int dst_ty
         return CV_HAL_ERROR_NOT_IMPLEMENTED;
     }
 
-    if(!CAROTENE_NS::isSeparableFilter3x3Supported(CAROTENE_NS::Size2D(16, 16), ctx->border, 3, 3))    
+    if(!CAROTENE_NS::isSeparableFilter3x3Supported(CAROTENE_NS::Size2D(16, 16), ctx->border, 3, 3))
     {
         delete ctx;
         return CV_HAL_ERROR_NOT_IMPLEMENTED;
@@ -1225,24 +1225,24 @@ inline int TEGRA_SEPFILTERINIT(cvhalFilter2D **context, int src_type, int dst_ty
         ctx->kernelx_data[1]=kernelx_data[1];
         ctx->kernelx_data[2]=kernelx_data[2];
         ctx->kernely_data[0]=kernely_data[0];
-        ctx->kernely_data[1]=kernely_data[kernely_step];
-        ctx->kernely_data[2]=kernely_data[2*kernely_step];
+        ctx->kernely_data[1]=kernely_data[1];
+        ctx->kernely_data[2]=kernely_data[2];
         break;
     case CV_8SC1:
         ctx->kernelx_data[0]=((char*)kernelx_data)[0];
         ctx->kernelx_data[1]=((char*)kernelx_data)[1];
         ctx->kernelx_data[2]=((char*)kernelx_data)[2];
         ctx->kernely_data[0]=((char*)kernely_data)[0];
-        ctx->kernely_data[1]=((char*)(kernely_data+kernely_step))[0];
-        ctx->kernely_data[2]=((char*)(kernely_data+2*kernely_step))[0];
+        ctx->kernely_data[1]=((char*)kernely_data)[1];
+        ctx->kernely_data[2]=((char*)kernely_data)[2];
         break;
     case CV_16UC1:
         ctx->kernelx_data[0]=((int16_t*)kernelx_data)[0];
         ctx->kernelx_data[1]=((int16_t*)kernelx_data)[1];
         ctx->kernelx_data[2]=((int16_t*)kernelx_data)[2];
         ctx->kernely_data[0]=((int16_t*)kernely_data)[0];
-        ctx->kernely_data[1]=((int16_t*)(kernely_data+kernely_step))[0];
-        ctx->kernely_data[2]=((int16_t*)(kernely_data+2*kernely_step))[0];
+        ctx->kernely_data[1]=((int16_t*)kernely_data)[1];
+        ctx->kernely_data[2]=((int16_t*)kernely_data)[2];
     default:
         delete ctx;
         return CV_HAL_ERROR_NOT_IMPLEMENTED;
@@ -1341,8 +1341,8 @@ inline int TEGRA_MORPHINIT(cvhalFilter2D **context, int operation, int src_type,
     ctx->anchor_y = anchor_y;
     switch(operation)
     {
-    case MORPH_ERODE:
-    case MORPH_DILATE:
+    case CV_HAL_MORPH_ERODE:
+    case CV_HAL_MORPH_DILATE:
         ctx->operation = operation;
         break;
     default:
@@ -1355,7 +1355,7 @@ inline int TEGRA_MORPHINIT(cvhalFilter2D **context, int operation, int src_type,
         ctx->border = CAROTENE_NS::BORDER_MODE_CONSTANT;
         if( borderValue[0] == DBL_MAX && borderValue[1] == DBL_MAX && borderValue[2] == DBL_MAX && borderValue[3] == DBL_MAX )
         {
-            if( operation == MORPH_ERODE )
+            if( operation == CV_HAL_MORPH_ERODE )
                 for(int i = 0; i < ctx->channels; ++i)
                     ctx->borderValues[i] = (CAROTENE_NS::u8)UCHAR_MAX;
             else
@@ -1404,14 +1404,14 @@ inline int TEGRA_MORPHFREE(cvhalFilter2D *context)
 ( \
     (void)dst_full_width, (void)dst_full_height, (void)dst_roi_x, (void)dst_roi_y, \
     context && CAROTENE_NS::isSupportedConfiguration() ? \
-        ((MorphCtx*)context)->operation == MORPH_ERODE ? \
+        ((MorphCtx*)context)->operation == CV_HAL_MORPH_ERODE ? \
         CAROTENE_NS::erode(CAROTENE_NS::Size2D(width, height), ((MorphCtx*)context)->channels, \
                            src_data, src_step, dst_data, dst_step, \
                            ((MorphCtx*)context)->ksize, ((MorphCtx*)context)->anchor_x, ((MorphCtx*)context)->anchor_y, \
                            ((MorphCtx*)context)->border, ((MorphCtx*)context)->border, ((MorphCtx*)context)->borderValues, \
                            CAROTENE_NS::Margin(src_roi_x, src_full_width - width - src_roi_x, src_roi_y, src_full_height - height - src_roi_y)), \
         CV_HAL_ERROR_OK : \
-        ((MorphCtx*)context)->operation == MORPH_DILATE ? \
+        ((MorphCtx*)context)->operation == CV_HAL_MORPH_DILATE ? \
         CAROTENE_NS::dilate(CAROTENE_NS::Size2D(width, height), ((MorphCtx*)context)->channels, \
                             src_data, src_step, dst_data, dst_step, \
                             ((MorphCtx*)context)->ksize, ((MorphCtx*)context)->anchor_x, ((MorphCtx*)context)->anchor_y, \

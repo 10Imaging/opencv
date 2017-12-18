@@ -38,8 +38,8 @@
 //
 //M*/
 
-#ifndef __OPENCV_ML_HPP__
-#define __OPENCV_ML_HPP__
+#ifndef OPENCV_ML_HPP
+#define OPENCV_ML_HPP
 
 #ifdef __cplusplus
 #  include "opencv2/core.hpp"
@@ -1896,32 +1896,6 @@ protected:
 };
 
 /****************************************************************************************\
-*                           Auxilary functions declarations                              *
-\****************************************************************************************/
-
-/* Generates <sample> from multivariate normal distribution, where <mean> - is an
-   average row vector, <cov> - symmetric covariation matrix */
-CVAPI(void) cvRandMVNormal( CvMat* mean, CvMat* cov, CvMat* sample,
-                           CvRNG* rng CV_DEFAULT(0) );
-
-/* Generates sample from gaussian mixture distribution */
-CVAPI(void) cvRandGaussMixture( CvMat* means[],
-                               CvMat* covs[],
-                               float weights[],
-                               int clsnum,
-                               CvMat* sample,
-                               CvMat* sampClasses CV_DEFAULT(0) );
-
-#define CV_TS_CONCENTRIC_SPHERES 0
-
-/* creates test set */
-CVAPI(void) cvCreateTestSet( int type, CvMat** samples,
-                 int num_samples,
-                 int num_features,
-                 CvMat** responses,
-                 int num_classes, ... );
-
-/****************************************************************************************\
 *                                      Data                                             *
 \****************************************************************************************/
 
@@ -2063,6 +2037,6 @@ template<> void DefaultDeleter<CvDTreeSplit>::operator ()(CvDTreeSplit* obj) con
 }
 
 #endif // __cplusplus
-#endif // __OPENCV_ML_HPP__
+#endif // OPENCV_ML_HPP
 
 /* End of file. */

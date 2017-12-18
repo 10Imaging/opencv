@@ -47,19 +47,24 @@ if(NOT ${found})
     endforeach()
   endif()
 
+  string(REGEX MATCH "^[0-9]+" _preferred_version_major ${preferred_version})
+
   find_host_package(PythonInterp "${preferred_version}")
   if(NOT PYTHONINTERP_FOUND)
     find_host_package(PythonInterp "${min_version}")
   endif()
 
   if(PYTHONINTERP_FOUND)
-    # Copy outputs
-    set(_found ${PYTHONINTERP_FOUND})
-    set(_executable ${PYTHON_EXECUTABLE})
-    set(_version_string ${PYTHON_VERSION_STRING})
-    set(_version_major ${PYTHON_VERSION_MAJOR})
-    set(_version_minor ${PYTHON_VERSION_MINOR})
-    set(_version_patch ${PYTHON_VERSION_PATCH})
+    # Check if python major version is correct
+    if(${_preferred_version_major} EQUAL ${PYTHON_VERSION_MAJOR})
+      # Copy outputs
+      set(_found ${PYTHONINTERP_FOUND})
+      set(_executable ${PYTHON_EXECUTABLE})
+      set(_version_string ${PYTHON_VERSION_STRING})
+      set(_version_major ${PYTHON_VERSION_MAJOR})
+      set(_version_minor ${PYTHON_VERSION_MINOR})
+      set(_version_patch ${PYTHON_VERSION_PATCH})
+    endif()
 
     # Clear find_host_package side effects
     unset(PYTHONINTERP_FOUND)
@@ -239,7 +244,7 @@ if(PYTHON_DEFAULT_EXECUTABLE)
 elseif(PYTHON2INTERP_FOUND) # Use Python 2 as default Python interpreter
     set(PYTHON_DEFAULT_AVAILABLE "TRUE")
     set(PYTHON_DEFAULT_EXECUTABLE "${PYTHON2_EXECUTABLE}")
-elseif(PYTHON3INTERP_FOUND) # Use Python 2 as fallback Python interpreter (if there is no Python 2)
+elseif(PYTHON3INTERP_FOUND) # Use Python 3 as fallback Python interpreter (if there is no Python 2)
     set(PYTHON_DEFAULT_AVAILABLE "TRUE")
     set(PYTHON_DEFAULT_EXECUTABLE "${PYTHON3_EXECUTABLE}")
 endif()

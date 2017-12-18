@@ -42,6 +42,10 @@
 
 #include "precomp.hpp"
 
+#ifndef _DEBUG
+#define QT_NO_DEBUG_OUTPUT
+#endif
+
 #if defined( HAVE_QT_OPENGL )
 #include <QtOpenGL>
 #include <QGLWidget>
@@ -132,6 +136,7 @@ public slots:
     double getPropWindow(QString name);
     void setPropWindow(QString name, double flags );
     void setWindowTitle(QString name, QString title);
+    double getWindowVisible(QString name);
     double getRatioWindow(QString name);
     void setRatioWindow(QString name, double arg2 );
     void saveWindowParameters(QString name);
@@ -403,18 +408,32 @@ public:
 };
 
 
+class OCVViewPort : public ViewPort
+{
+public:
+    explicit OCVViewPort();
+    ~OCVViewPort() {};
+    void setMouseCallBack(CvMouseCallback callback, void* param);
+
+protected:
+    void icvmouseEvent(QMouseEvent* event, type_mouse_event category);
+    void icvmouseHandler(QMouseEvent* event, type_mouse_event category, int& cv_event, int& flags);
+    virtual void icvmouseProcessing(QPointF pt, int cv_event, int flags);
+
+    CvMouseCallback mouseCallback;
+    void* mouseData;
+};
+
 
 #ifdef HAVE_QT_OPENGL
 
-class OpenGlViewPort : public QGLWidget, public ViewPort
+class OpenGlViewPort : public QGLWidget, public OCVViewPort
 {
 public:
     explicit OpenGlViewPort(QWidget* parent);
     ~OpenGlViewPort();
 
     QWidget* getWidget();
-
-    void setMouseCallBack(CvMouseCallback callback, void* param);
 
     void writeSettings(QSettings& settings);
     void readSettings(QSettings& settings);
@@ -448,20 +467,14 @@ protected:
 private:
     QSize size;
 
-    CvMouseCallback mouseCallback;
-    void* mouseData;
-
     CvOpenGlDrawCallback glDrawCallback;
     void* glDrawData;
-
-    void icvmouseHandler(QMouseEvent* event, type_mouse_event category, int& cv_event, int& flags);
-    void icvmouseProcessing(QPointF pt, int cv_event, int flags);
 };
 
 #endif // HAVE_QT_OPENGL
 
 
-class DefaultViewPort : public QGraphicsView, public ViewPort
+class DefaultViewPort : public QGraphicsView, public OCVViewPort
 {
     Q_OBJECT
 
@@ -470,8 +483,6 @@ public:
     ~DefaultViewPort();
 
     QWidget* getWidget();
-
-    void setMouseCallBack(CvMouseCallback callback, void* param);
 
     void writeSettings(QSettings& settings);
     void readSettings(QSettings& settings);
@@ -510,6 +521,7 @@ protected:
     void contextMenuEvent(QContextMenuEvent* event);
     void resizeEvent(QResizeEvent* event);
     void paintEvent(QPaintEvent* paintEventInfo);
+
     void wheelEvent(QWheelEvent* event);
     void mouseMoveEvent(QMouseEvent* event);
     void mousePressEvent(QMouseEvent* event);
@@ -526,17 +538,13 @@ private:
     QImage image2Draw_qt;
     int nbChannelOriginImage;
 
-    //for mouse callback
-    CvMouseCallback on_mouse;
-    void* on_mouse_param;
-
 
     void scaleView(qreal scaleFactor, QPointF center);
     void moveView(QPointF delta);
 
-    QPoint mouseCoordinate;
+    QPoint  mouseCoordinate;
     QPointF positionGrabbing;
-    QRect  positionCorners;
+    QRect   positionCorners;
     QTransform matrixWorld_inv;
     float ratioX, ratioY;
 
@@ -555,7 +563,7 @@ private:
     void draw2D(QPainter *painter);
     void drawStatusBar();
     void controlImagePosition();
-    void icvmouseHandler(QMouseEvent *event, type_mouse_event category, int &cv_event, int &flags);
+
     void icvmouseProcessing(QPointF pt, int cv_event, int flags);
 
 private slots:

@@ -66,7 +66,7 @@ void CV_OptFlowPyrLKTest::run( int )
     double  max_err = 0., sum_err = 0;
     int     pt_cmpd = 0;
     int     pt_exceed = 0;
-    int     merr_i = 0, merr_j = 0, merr_k = 0;
+    int     merr_i = 0, merr_j = 0, merr_k = 0, merr_nan = 0;
     char    filename[1000];
 
     CvPoint2D32f *u = 0, *v = 0, *v2 = 0;
@@ -153,9 +153,15 @@ void CV_OptFlowPyrLKTest::run( int )
         if( status[i] != 0 )
         {
             double err;
-            if( cvIsNaN(v[i].x) )
+            if( cvIsNaN(v[i].x) || cvIsNaN(v[i].y) )
             {
                 merr_j++;
+                continue;
+            }
+
+            if( cvIsNaN(v2[i].x) || cvIsNaN(v2[i].y) )
+            {
+                merr_nan++;
                 continue;
             }
 
@@ -198,6 +204,13 @@ void CV_OptFlowPyrLKTest::run( int )
         goto _exit_;
     }
 
+    if( merr_nan > 0 )
+    {
+        ts->printf( cvtest::TS::LOG, "NAN tracking result with status != 0 (%d times)\n", merr_nan );
+        code = cvtest::TS::FAIL_BAD_ACCURACY;
+        goto _exit_;
+    }
+
 _exit_:
 
     cvFree( &status );
@@ -221,7 +234,7 @@ TEST(Video_OpticalFlowPyrLK, submat)
     ASSERT_FALSE(lenaImg.empty());
 
     cv::Mat wholeImage;
-    cv::resize(lenaImg, wholeImage, cv::Size(1024, 1024));
+    cv::resize(lenaImg, wholeImage, cv::Size(1024, 1024), 0, 0, cv::INTER_LINEAR_EXACT);
 
     cv::Mat img1 = wholeImage(cv::Rect(0, 0, 640, 360)).clone();
     cv::Mat img2 = wholeImage(cv::Rect(40, 60, 640, 360));

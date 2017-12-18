@@ -101,6 +101,8 @@ static bool ocl_math_op(InputArray _src1, InputArray _src2, OutputArray _dst, in
 \* ************************************************************************** */
 float  cubeRoot( float value )
 {
+    CV_INSTRUMENT_REGION()
+
     float fr;
     Cv32suf v, m;
     int ix, s;
@@ -142,6 +144,8 @@ float  cubeRoot( float value )
 
 void magnitude( InputArray src1, InputArray src2, OutputArray dst )
 {
+    CV_INSTRUMENT_REGION()
+
     int type = src1.type(), depth = src1.depth(), cn = src1.channels();
     CV_Assert( src1.size() == src2.size() && type == src2.type() && (depth == CV_32F || depth == CV_64F));
 
@@ -176,6 +180,8 @@ void magnitude( InputArray src1, InputArray src2, OutputArray dst )
 
 void phase( InputArray src1, InputArray src2, OutputArray dst, bool angleInDegrees )
 {
+    CV_INSTRUMENT_REGION()
+
     int type = src1.type(), depth = src1.depth(), cn = src1.channels();
     CV_Assert( src1.size() == src2.size() && type == src2.type() && (depth == CV_32F || depth == CV_64F));
 
@@ -260,6 +266,8 @@ static bool ocl_cartToPolar( InputArray _src1, InputArray _src2,
 void cartToPolar( InputArray src1, InputArray src2,
                   OutputArray dst1, OutputArray dst2, bool angleInDegrees )
 {
+    CV_INSTRUMENT_REGION()
+
     CV_OCL_RUN(dst1.isUMat() && dst2.isUMat(),
             ocl_cartToPolar(src1, src2, dst1, dst2, angleInDegrees))
 
@@ -489,9 +497,70 @@ static bool ocl_polarToCart( InputArray _mag, InputArray _angle,
 
 #endif
 
+#ifdef HAVE_IPP
+static bool ipp_polarToCart(Mat &mag, Mat &angle, Mat &x, Mat &y)
+{
+    CV_INSTRUMENT_REGION_IPP()
+
+    int depth = angle.depth();
+    if(depth != CV_32F && depth != CV_64F)
+        return false;
+
+    if(angle.dims <= 2)
+    {
+        int len = (int)(angle.cols*angle.channels());
+
+        if(depth == CV_32F)
+        {
+            for (int h = 0; h < angle.rows; h++)
+            {
+                if(CV_INSTRUMENT_FUN_IPP(ippsPolarToCart_32f, (const float*)mag.ptr(h), (const float*)angle.ptr(h), (float*)x.ptr(h), (float*)y.ptr(h), len) < 0)
+                    return false;
+            }
+        }
+        else
+        {
+            for (int h = 0; h < angle.rows; h++)
+            {
+                if(CV_INSTRUMENT_FUN_IPP(ippsPolarToCart_64f, (const double*)mag.ptr(h), (const double*)angle.ptr(h), (double*)x.ptr(h), (double*)y.ptr(h), len) < 0)
+                    return false;
+            }
+        }
+        return true;
+    }
+    else
+    {
+        const Mat      *arrays[] = {&mag, &angle, &x, &y, NULL};
+        uchar          *ptrs[4]  = {NULL};
+        NAryMatIterator it(arrays, ptrs);
+        int len = (int)(it.size*angle.channels());
+
+        if(depth == CV_32F)
+        {
+            for (size_t i = 0; i < it.nplanes; i++, ++it)
+            {
+                if(CV_INSTRUMENT_FUN_IPP(ippsPolarToCart_32f, (const float*)ptrs[0], (const float*)ptrs[1], (float*)ptrs[2], (float*)ptrs[3], len) < 0)
+                    return false;
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < it.nplanes; i++, ++it)
+            {
+                if(CV_INSTRUMENT_FUN_IPP(ippsPolarToCart_64f, (const double*)ptrs[0], (const double*)ptrs[1], (double*)ptrs[2], (double*)ptrs[3], len) < 0)
+                    return false;
+            }
+        }
+        return true;
+    }
+}
+#endif
+
 void polarToCart( InputArray src1, InputArray src2,
                   OutputArray dst1, OutputArray dst2, bool angleInDegrees )
 {
+    CV_INSTRUMENT_REGION()
+
     int type = src2.type(), depth = CV_MAT_DEPTH(type), cn = CV_MAT_CN(type);
     CV_Assert((depth == CV_32F || depth == CV_64F) && (src1.empty() || src1.type() == type));
 
@@ -504,28 +573,7 @@ void polarToCart( InputArray src1, InputArray src2,
     dst2.create( Angle.dims, Angle.size, type );
     Mat X = dst1.getMat(), Y = dst2.getMat();
 
-#if defined(HAVE_IPP)
-    CV_IPP_CHECK()
-    {
-        if (Mag.isContinuous() && Angle.isContinuous() && X.isContinuous() && Y.isContinuous() && !angleInDegrees)
-        {
-            typedef IppStatus (CV_STDCALL * ippsPolarToCart)(const void * pSrcMagn, const void * pSrcPhase,
-                                                             void * pDstRe, void * pDstIm, int len);
-            ippsPolarToCart ippFunc =
-            depth == CV_32F ? (ippsPolarToCart)ippsPolarToCart_32f :
-            depth == CV_64F ? (ippsPolarToCart)ippsPolarToCart_64f : 0;
-            CV_Assert(ippFunc != 0);
-
-            IppStatus status = ippFunc(Mag.ptr(), Angle.ptr(), X.ptr(), Y.ptr(), static_cast<int>(cn * X.total()));
-            if (status >= 0)
-            {
-                CV_IMPL_ADD(CV_IMPL_IPP);
-                return;
-            }
-            setIppErrorStatus();
-        }
-    }
-#endif
+    CV_IPP_RUN(!angleInDegrees, ipp_polarToCart(Mag, Angle, X, Y));
 
     const Mat* arrays[] = {&Mag, &Angle, &X, &Y, 0};
     uchar* ptrs[4];
@@ -557,24 +605,18 @@ void polarToCart( InputArray src1, InputArray src2,
                 {
                     k = 0;
 
-                    #if CV_NEON
-                    for( ; k <= len - 4; k += 4 )
+#if CV_SIMD128
+                    if( hasSIMD128() )
                     {
-                        float32x4_t v_m = vld1q_f32(mag + k);
-                        vst1q_f32(x + k, vmulq_f32(vld1q_f32(x + k), v_m));
-                        vst1q_f32(y + k, vmulq_f32(vld1q_f32(y + k), v_m));
-                    }
-                    #elif CV_SSE2
-                    if (USE_SSE2)
-                    {
-                        for( ; k <= len - 4; k += 4 )
+                        int cWidth = v_float32x4::nlanes;
+                        for( ; k <= len - cWidth; k += cWidth )
                         {
-                            __m128 v_m = _mm_loadu_ps(mag + k);
-                            _mm_storeu_ps(x + k, _mm_mul_ps(_mm_loadu_ps(x + k), v_m));
-                            _mm_storeu_ps(y + k, _mm_mul_ps(_mm_loadu_ps(y + k), v_m));
+                            v_float32x4 v_m = v_load(mag + k);
+                            v_store(x + k, v_load(x + k) * v_m);
+                            v_store(y + k, v_load(y + k) * v_m);
                         }
                     }
-                    #endif
+#endif
 
                     for( ; k < len; k++ )
                     {
@@ -618,45 +660,10 @@ void polarToCart( InputArray src1, InputArray src2,
 *                                          E X P                                         *
 \****************************************************************************************/
 
-#ifdef HAVE_IPP
-static void Exp_32f_ipp(const float *x, float *y, int n)
-{
-    CV_IPP_CHECK()
-    {
-        if (0 <= ippsExp_32f_A21(x, y, n))
-        {
-            CV_IMPL_ADD(CV_IMPL_IPP);
-            return;
-        }
-        setIppErrorStatus();
-    }
-    hal::exp32f(x, y, n);
-}
-
-static void Exp_64f_ipp(const double *x, double *y, int n)
-{
-    CV_IPP_CHECK()
-    {
-        if (0 <= ippsExp_64f_A50(x, y, n))
-        {
-            CV_IMPL_ADD(CV_IMPL_IPP);
-            return;
-        }
-        setIppErrorStatus();
-    }
-    hal::exp64f(x, y, n);
-}
-
-#define Exp_32f Exp_32f_ipp
-#define Exp_64f Exp_64f_ipp
-#else
-#define Exp_32f hal::exp32f
-#define Exp_64f hal::exp64f
-#endif
-
-
 void exp( InputArray _src, OutputArray _dst )
 {
+    CV_INSTRUMENT_REGION()
+
     int type = _src.type(), depth = _src.depth(), cn = _src.channels();
     CV_Assert( depth == CV_32F || depth == CV_64F );
 
@@ -675,9 +682,9 @@ void exp( InputArray _src, OutputArray _dst )
     for( size_t i = 0; i < it.nplanes; i++, ++it )
     {
         if( depth == CV_32F )
-            Exp_32f((const float*)ptrs[0], (float*)ptrs[1], len);
+            hal::exp32f((const float*)ptrs[0], (float*)ptrs[1], len);
         else
-            Exp_64f((const double*)ptrs[0], (double*)ptrs[1], len);
+            hal::exp64f((const double*)ptrs[0], (double*)ptrs[1], len);
     }
 }
 
@@ -686,44 +693,10 @@ void exp( InputArray _src, OutputArray _dst )
 *                                          L O G                                         *
 \****************************************************************************************/
 
-#ifdef HAVE_IPP
-static void Log_32f_ipp(const float *x, float *y, int n)
-{
-    CV_IPP_CHECK()
-    {
-        if (0 <= ippsLn_32f_A21(x, y, n))
-        {
-            CV_IMPL_ADD(CV_IMPL_IPP);
-            return;
-        }
-        setIppErrorStatus();
-    }
-    hal::log32f(x, y, n);
-}
-
-static void Log_64f_ipp(const double *x, double *y, int n)
-{
-    CV_IPP_CHECK()
-    {
-        if (0 <= ippsLn_64f_A50(x, y, n))
-        {
-            CV_IMPL_ADD(CV_IMPL_IPP);
-            return;
-        }
-        setIppErrorStatus();
-    }
-    hal::log64f(x, y, n);
-}
-
-#define Log_32f Log_32f_ipp
-#define Log_64f Log_64f_ipp
-#else
-#define Log_32f hal::log32f
-#define Log_64f hal::log64f
-#endif
-
 void log( InputArray _src, OutputArray _dst )
 {
+    CV_INSTRUMENT_REGION()
+
     int type = _src.type(), depth = _src.depth(), cn = _src.channels();
     CV_Assert( depth == CV_32F || depth == CV_64F );
 
@@ -742,9 +715,9 @@ void log( InputArray _src, OutputArray _dst )
     for( size_t i = 0; i < it.nplanes; i++, ++it )
     {
         if( depth == CV_32F )
-            Log_32f( (const float*)ptrs[0], (float*)ptrs[1], len );
+            hal::log32f( (const float*)ptrs[0], (float*)ptrs[1], len );
         else
-            Log_64f( (const double*)ptrs[0], (double*)ptrs[1], len );
+            hal::log64f( (const double*)ptrs[0], (double*)ptrs[1], len );
     }
 }
 
@@ -1226,13 +1199,10 @@ static bool ocl_pow(InputArray _src, double power, OutputArray _dst,
 
 #endif
 
-static void InvSqrt_32f(const float* src, float* dst, int n) { hal::invSqrt32f(src, dst, n); }
-static void InvSqrt_64f(const double* src, double* dst, int n) { hal::invSqrt64f(src, dst, n); }
-static void Sqrt_32f(const float* src, float* dst, int n) { hal::sqrt32f(src, dst, n); }
-static void Sqrt_64f(const double* src, double* dst, int n) { hal::sqrt64f(src, dst, n); }
-
 void pow( InputArray _src, double power, OutputArray _dst )
 {
+    CV_INSTRUMENT_REGION()
+
     int type = _src.type(), depth = CV_MAT_DEPTH(type),
             cn = CV_MAT_CN(type), ipower = cvRound(power);
     bool is_ipower = fabs(ipower - power) < DBL_EPSILON;
@@ -1285,8 +1255,8 @@ void pow( InputArray _src, double power, OutputArray _dst )
     else if( fabs(fabs(power) - 0.5) < DBL_EPSILON )
     {
         MathFunc func = power < 0 ?
-            (depth == CV_32F ? (MathFunc)InvSqrt_32f : (MathFunc)InvSqrt_64f) :
-            (depth == CV_32F ? (MathFunc)Sqrt_32f : (MathFunc)Sqrt_64f);
+            (depth == CV_32F ? (MathFunc)hal::invSqrt32f : (MathFunc)hal::invSqrt64f) :
+            (depth == CV_32F ? (MathFunc)hal::sqrt32f : (MathFunc)hal::sqrt64f);
 
         for( size_t i = 0; i < it.nplanes; i++, ++it )
             func( ptrs[0], ptrs[1], len );
@@ -1318,24 +1288,6 @@ void pow( InputArray _src, double power, OutputArray _dst )
             {
                 int bsz = std::min(len - j, blockSize);
 
-            #if defined(HAVE_IPP)
-                CV_IPP_CHECK()
-                {
-                    IppStatus status = depth == CV_32F ?
-                    ippsPowx_32f_A21((const float*)ptrs[0], (float)power, (float*)ptrs[1], bsz) :
-                    ippsPowx_64f_A50((const double*)ptrs[0], (double)power, (double*)ptrs[1], bsz);
-
-                    if (status >= 0)
-                    {
-                        CV_IMPL_ADD(CV_IMPL_IPP);
-                        ptrs[0] += bsz*esz1;
-                        ptrs[1] += bsz*esz1;
-                        continue;
-                    }
-                    setIppErrorStatus();
-                }
-            #endif
-
                 if( depth == CV_32F )
                 {
                     float* x0 = (float*)ptrs[0];
@@ -1345,10 +1297,10 @@ void pow( InputArray _src, double power, OutputArray _dst )
                     if( x != x0 )
                         memcpy(x, x0, bsz*esz1);
 
-                    Log_32f(x, y, bsz);
+                    hal::log32f(x, y, bsz);
                     for( k = 0; k < bsz; k++ )
                         y[k] = (float)(y[k]*power);
-                    Exp_32f(y, y, bsz);
+                    hal::exp32f(y, y, bsz);
                     for( k = 0; k < bsz; k++ )
                     {
                         if( x0[k] <= 0 )
@@ -1372,10 +1324,10 @@ void pow( InputArray _src, double power, OutputArray _dst )
                     if( x != x0 )
                         memcpy(x, x0, bsz*esz1);
 
-                    Log_64f(x, y, bsz);
+                    hal::log64f(x, y, bsz);
                     for( k = 0; k < bsz; k++ )
                         y[k] *= power;
-                    Exp_64f(y, y, bsz);
+                    hal::exp64f(y, y, bsz);
 
                     for( k = 0; k < bsz; k++ )
                     {
@@ -1400,6 +1352,8 @@ void pow( InputArray _src, double power, OutputArray _dst )
 
 void sqrt(InputArray a, OutputArray b)
 {
+    CV_INSTRUMENT_REGION()
+
     cv::pow(a, 0.5, b);
 }
 
@@ -1485,6 +1439,8 @@ check_range_function check_range_functions[] =
 
 bool checkRange(InputArray _src, bool quiet, Point* pt, double minVal, double maxVal)
 {
+    CV_INSTRUMENT_REGION()
+
     Mat src = _src.getMat();
 
     if ( src.dims > 2 )
@@ -1622,6 +1578,8 @@ static bool ocl_patchNaNs( InputOutputArray _a, float value )
 
 void patchNaNs( InputOutputArray _a, double _val )
 {
+    CV_INSTRUMENT_REGION()
+
     CV_Assert( _a.depth() == CV_32F );
 
     CV_OCL_RUN(_a.isUMat() && _a.dims() <= 2,
@@ -1635,12 +1593,9 @@ void patchNaNs( InputOutputArray _a, double _val )
     Cv32suf val;
     val.f = (float)_val;
 
-#if CV_SSE2
-    __m128i v_mask1 = _mm_set1_epi32(0x7fffffff), v_mask2 = _mm_set1_epi32(0x7f800000);
-    __m128i v_val = _mm_set1_epi32(val.i);
-#elif CV_NEON
-    int32x4_t v_mask1 = vdupq_n_s32(0x7fffffff), v_mask2 = vdupq_n_s32(0x7f800000),
-        v_val = vdupq_n_s32(val.i);
+#if CV_SIMD128
+    v_int32x4 v_mask1 = v_setall_s32(0x7fffffff), v_mask2 = v_setall_s32(0x7f800000);
+    v_int32x4 v_val = v_setall_s32(val.i);
 #endif
 
     for( size_t i = 0; i < it.nplanes; i++, ++it )
@@ -1648,24 +1603,17 @@ void patchNaNs( InputOutputArray _a, double _val )
         int* tptr = ptrs[0];
         size_t j = 0;
 
-#if CV_SSE2
-        if (USE_SSE2)
+#if CV_SIMD128
+        if( hasSIMD128() )
         {
-            for ( ; j + 4 <= len; j += 4)
+            size_t cWidth = (size_t)v_int32x4::nlanes;
+            for ( ; j + cWidth <= len; j += cWidth)
             {
-                __m128i v_src = _mm_loadu_si128((__m128i const *)(tptr + j));
-                __m128i v_cmp_mask = _mm_cmplt_epi32(v_mask2, _mm_and_si128(v_src, v_mask1));
-                __m128i v_res = _mm_or_si128(_mm_andnot_si128(v_cmp_mask, v_src), _mm_and_si128(v_cmp_mask, v_val));
-                _mm_storeu_si128((__m128i *)(tptr + j), v_res);
+                v_int32x4 v_src = v_load(tptr + j);
+                v_int32x4 v_cmp_mask = v_mask2 < (v_src & v_mask1);
+                v_int32x4 v_dst = v_select(v_cmp_mask, v_val, v_src);
+                v_store(tptr + j, v_dst);
             }
-        }
-#elif CV_NEON
-        for ( ; j + 4 <= len; j += 4)
-        {
-            int32x4_t v_src = vld1q_s32(tptr + j);
-            uint32x4_t v_cmp_mask = vcltq_s32(v_mask2, vandq_s32(v_src, v_mask1));
-            int32x4_t v_dst = vbslq_s32(v_cmp_mask, v_val, v_src);
-            vst1q_s32(tptr + j, v_dst);
         }
 #endif
 
@@ -1787,6 +1735,8 @@ CV_IMPL int cvCheckArr( const CvArr* arr, int flags,
 
 int cv::solveCubic( InputArray _coeffs, OutputArray _roots )
 {
+    CV_INSTRUMENT_REGION()
+
     const int n0 = 3;
     Mat coeffs = _coeffs.getMat();
     int ctype = coeffs.type();
@@ -1932,6 +1882,8 @@ int cv::solveCubic( InputArray _coeffs, OutputArray _roots )
    http://en.wikipedia.org/wiki/Durand%E2%80%93Kerner_method */
 double cv::solvePoly( InputArray _coeffs0, OutputArray _roots0, int maxIters )
 {
+    CV_INSTRUMENT_REGION()
+
     typedef Complex<double> C;
 
     double maxDiff = 0;

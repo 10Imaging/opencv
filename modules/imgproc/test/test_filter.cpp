@@ -715,7 +715,7 @@ void CV_SmoothBaseTest::get_test_array_types_and_sizes( int test_case_idx,
 double CV_SmoothBaseTest::get_success_error_level( int /*test_case_idx*/, int /*i*/, int /*j*/ )
 {
     int depth = test_mat[INPUT][0].depth();
-    return depth <= CV_8S ? 1 : 1e-5;
+    return depth < CV_32F ? 1 : 1e-5;
 }
 
 
@@ -1982,6 +1982,27 @@ TEST(Imgproc_Blur, borderTypes)
     EXPECT_DOUBLE_EQ(0.0, cvtest::norm(expected_dst, dst, NORM_INF));
 }
 
+TEST(Imgproc_GaussianBlur, borderTypes)
+{
+    Size kernelSize(3, 3);
+
+    Mat src_16(16, 16, CV_8UC1, cv::Scalar::all(42)), dst_16;
+    Mat src_roi_16 = src_16(Rect(1, 1, 14, 14));
+    src_roi_16.setTo(cv::Scalar::all(3));
+
+    cv::GaussianBlur(src_roi_16, dst_16, kernelSize, 0, 0, BORDER_REPLICATE);
+
+    EXPECT_EQ(20, dst_16.at<uchar>(0, 0));
+
+    Mat src(3, 12, CV_8UC1, cv::Scalar::all(42)), dst;
+    Mat src_roi = src(Rect(1, 1, 10, 1));
+    src_roi.setTo(cv::Scalar::all(2));
+
+    cv::GaussianBlur(src_roi, dst, kernelSize, 0, 0, BORDER_REPLICATE);
+
+    EXPECT_EQ(27, dst.at<uchar>(0, 0));
+}
+
 TEST(Imgproc_Morphology, iterated)
 {
     RNG& rng = theRNG();
@@ -2014,4 +2035,87 @@ TEST(Imgproc_Morphology, iterated)
         ASSERT_EQ(0.0, norm(dst0, dst1, NORM_INF));
         ASSERT_EQ(0.0, norm(dst0, dst2, NORM_INF));
     }
+}
+
+TEST(Imgproc_Sobel, borderTypes)
+{
+    int kernelSize = 3;
+
+    /// ksize > src_roi.size()
+    Mat src = (Mat_<uchar>(3, 3) << 1, 2, 3, 4, 5, 6, 7, 8, 9), dst, expected_dst;
+    Mat src_roi = src(Rect(1, 1, 1, 1));
+    src_roi.setTo(cv::Scalar::all(0));
+
+    // should work like !BORDER_ISOLATED, so the function MUST read values in full matrix
+    Sobel(src_roi, dst, CV_16S, 1, 0, kernelSize, 1, 0, BORDER_REPLICATE);
+    EXPECT_EQ(8, dst.at<short>(0, 0));
+    Sobel(src_roi, dst, CV_16S, 1, 0, kernelSize, 1, 0, BORDER_REFLECT);
+    EXPECT_EQ(8, dst.at<short>(0, 0));
+
+    // should work like BORDER_ISOLATED
+    Sobel(src_roi, dst, CV_16S, 1, 0, kernelSize, 1, 0, BORDER_REPLICATE | BORDER_ISOLATED);
+    EXPECT_EQ(0, dst.at<short>(0, 0));
+    Sobel(src_roi, dst, CV_16S, 1, 0, kernelSize, 1, 0, BORDER_REFLECT | BORDER_ISOLATED);
+    EXPECT_EQ(0, dst.at<short>(0, 0));
+
+    /// ksize <= src_roi.size()
+    src = Mat(5, 5, CV_8UC1, cv::Scalar(5));
+    src_roi = src(Rect(1, 1, 3, 3));
+    src_roi.setTo(0);
+
+    // should work like !BORDER_ISOLATED, so the function MUST read values in full matrix
+    expected_dst =
+        (Mat_<short>(3, 3) << -15, 0, 15, -20, 0, 20, -15, 0, 15);
+    Sobel(src_roi, dst, CV_16S, 1, 0, kernelSize, 1, 0, BORDER_REPLICATE);
+    EXPECT_EQ(expected_dst.type(), dst.type());
+    EXPECT_EQ(expected_dst.size(), dst.size());
+    EXPECT_DOUBLE_EQ(0.0, cvtest::norm(expected_dst, dst, NORM_INF));
+    Sobel(src_roi, dst, CV_16S, 1, 0, kernelSize, 1, 0, BORDER_REFLECT);
+    EXPECT_EQ(expected_dst.type(), dst.type());
+    EXPECT_EQ(expected_dst.size(), dst.size());
+    EXPECT_DOUBLE_EQ(0.0, cvtest::norm(expected_dst, dst, NORM_INF));
+
+    // should work like !BORDER_ISOLATED, so the function MUST read values in full matrix
+    expected_dst = Mat::zeros(3, 3, CV_16SC1);
+    Sobel(src_roi, dst, CV_16S, 1, 0, kernelSize, 1, 0, BORDER_REPLICATE | BORDER_ISOLATED);
+    EXPECT_EQ(expected_dst.type(), dst.type());
+    EXPECT_EQ(expected_dst.size(), dst.size());
+    EXPECT_DOUBLE_EQ(0.0, cvtest::norm(expected_dst, dst, NORM_INF));
+    Sobel(src_roi, dst, CV_16S, 1, 0, kernelSize, 1, 0, BORDER_REFLECT | BORDER_ISOLATED);
+    EXPECT_EQ(expected_dst.type(), dst.type());
+    EXPECT_EQ(expected_dst.size(), dst.size());
+    EXPECT_DOUBLE_EQ(0.0, cvtest::norm(expected_dst, dst, NORM_INF));
+}
+
+TEST(Imgproc_MorphEx, hitmiss_regression_8957)
+{
+    Mat_<uchar> src(3, 3);
+    src << 0, 255, 0,
+           0,   0, 0,
+           0, 255, 0;
+
+    Mat_<uchar> kernel = src / 255;
+
+    Mat dst;
+    morphologyEx(src, dst, MORPH_HITMISS, kernel);
+
+    Mat ref = Mat::zeros(3, 3, CV_8U);
+    ref.at<uchar>(1, 1) = 255;
+
+    ASSERT_DOUBLE_EQ(norm(dst, ref, NORM_INF), 0.);
+}
+
+TEST(Imgproc_MorphEx, hitmiss_zero_kernel)
+{
+    Mat_<uchar> src(3, 3);
+    src << 0, 255, 0,
+           0,   0, 0,
+           0, 255, 0;
+
+    Mat_<uchar> kernel = Mat_<uchar>::zeros(3, 3);
+
+    Mat dst;
+    morphologyEx(src, dst, MORPH_HITMISS, kernel);
+
+    ASSERT_DOUBLE_EQ(norm(dst, src, NORM_INF), 0.);
 }

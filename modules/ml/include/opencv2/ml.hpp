@@ -41,8 +41,8 @@
 //
 //M*/
 
-#ifndef __OPENCV_ML_HPP__
-#define __OPENCV_ML_HPP__
+#ifndef OPENCV_ML_HPP
+#define OPENCV_ML_HPP
 
 #ifdef __cplusplus
 #  include "opencv2/core.hpp"
@@ -104,7 +104,7 @@ enum SampleTypes
 It is used for optimizing statmodel accuracy by varying model parameters, the accuracy estimate
 being computed by cross-validation.
  */
-class CV_EXPORTS ParamGrid
+class CV_EXPORTS_W ParamGrid
 {
 public:
     /** @brief Default constructor */
@@ -112,8 +112,8 @@ public:
     /** @brief Constructor with parameters */
     ParamGrid(double _minVal, double _maxVal, double _logStep);
 
-    double minVal; //!< Minimum value of the statmodel parameter. Default value is 0.
-    double maxVal; //!< Maximum value of the statmodel parameter. Default value is 0.
+    CV_PROP_RW double minVal; //!< Minimum value of the statmodel parameter. Default value is 0.
+    CV_PROP_RW double maxVal; //!< Maximum value of the statmodel parameter. Default value is 0.
     /** @brief Logarithmic step for iterating the statmodel parameter.
 
     The grid determines the following iteration sequence of the statmodel parameter values:
@@ -122,7 +122,15 @@ public:
     \f[\texttt{minVal} * \texttt{logStep} ^n <  \texttt{maxVal}\f]
     The grid is logarithmic, so logStep must always be greater then 1. Default value is 1.
     */
-    double logStep;
+    CV_PROP_RW double logStep;
+
+    /** @brief Creates a ParamGrid Ptr that can be given to the %SVM::trainAuto method
+
+    @param minVal minimum value of the parameter grid
+    @param maxVal maximum value of the parameter grid
+    @param logstep Logarithmic step for iterating the statmodel parameter
+    */
+    CV_WRAP static Ptr<ParamGrid> create(double minVal=0., double maxVal=0., double logstep=1.);
 };
 
 /** @brief Class encapsulating training data.
@@ -190,6 +198,7 @@ public:
     CV_WRAP virtual Mat getTestSampleWeights() const = 0;
     CV_WRAP virtual Mat getVarIdx() const = 0;
     CV_WRAP virtual Mat getVarType() const = 0;
+    CV_WRAP Mat getVarSymbolFlags() const;
     CV_WRAP virtual int getResponseType() const = 0;
     CV_WRAP virtual Mat getTrainSampleIdx() const = 0;
     CV_WRAP virtual Mat getTestSampleIdx() const = 0;
@@ -226,6 +235,9 @@ public:
 
     /** @brief Returns matrix of test samples */
     CV_WRAP Mat getTestSamples() const;
+
+    /** @brief Returns vector of symbolic names captured in loadFromCSV() */
+    CV_WRAP void getNames(std::vector<String>& names) const;
 
     CV_WRAP static Mat getSubVector(const Mat& vec, const Mat& idx);
 
@@ -285,7 +297,7 @@ public:
         <number_of_variables_in_responses>`, containing types of each input and output variable. See
         ml::VariableTypes.
      */
-    CV_WRAP static Ptr<cv::ml::TrainData> create(InputArray samples, int layout, InputArray responses,
+    CV_WRAP static Ptr<TrainData> create(InputArray samples, int layout, InputArray responses,
                                  InputArray varIdx=noArray(), InputArray sampleIdx=noArray(),
                                  InputArray sampleWeights=noArray(), InputArray varType=noArray());
 };
@@ -320,7 +332,7 @@ public:
     @param flags optional flags, depending on the model. Some of the models can be updated with the
         new training samples, not completely overwritten (such as NormalBayesClassifier or ANN_MLP).
      */
-    CV_WRAP virtual bool train( const Ptr<cv::ml::TrainData>& trainData, int flags=0 );
+    CV_WRAP virtual bool train( const Ptr<TrainData>& trainData, int flags=0 );
 
     /** @brief Trains the statistical model
 
@@ -343,7 +355,7 @@ public:
     The method uses StatModel::predict to compute the error. For regression models the error is
     computed as RMS, for classifiers - as a percent of missclassified samples (0%-100%).
      */
-    CV_WRAP virtual float calcError( const Ptr<cv::ml::TrainData>& data, bool test, OutputArray resp ) const;
+    CV_WRAP virtual float calcError( const Ptr<TrainData>& data, bool test, OutputArray resp ) const;
 
     /** @brief Predicts response(s) for the provided sample(s)
 
@@ -357,7 +369,7 @@ public:
 
     The class must implement static `create()` method with no parameters or with all default parameter values
     */
-    template<typename _Tp> static Ptr<_Tp> train(const Ptr<cv::ml::TrainData>& data, int flags=0)
+    template<typename _Tp> static Ptr<_Tp> train(const Ptr<TrainData>& data, int flags=0)
     {
         Ptr<_Tp> model = _Tp::create();
         return !model.empty() && model->train(data, flags) ? model : Ptr<_Tp>();
@@ -389,6 +401,17 @@ public:
     /** Creates empty model
     Use StatModel::train to train the model after creation. */
     CV_WRAP static Ptr<NormalBayesClassifier> create();
+
+    /** @brief Loads and creates a serialized NormalBayesClassifier from a file
+     *
+     * Use NormalBayesClassifier::save to serialize and store an NormalBayesClassifier to disk.
+     * Load the NormalBayesClassifier from this file again, by calling this function with the path to the file.
+     * Optionally specify the node for the file containing the classifier
+     *
+     * @param filepath path to serialized NormalBayesClassifier
+     * @param nodeName name of node containing the classifier
+     */
+    CV_WRAP static Ptr<NormalBayesClassifier> load(const String& filepath , const String& nodeName = String());
 };
 
 /****************************************************************************************\
@@ -667,14 +690,54 @@ public:
     regression (SVM::EPS_SVR or SVM::NU_SVR). If it is SVM::ONE_CLASS, no optimization is made and
     the usual %SVM with parameters specified in params is executed.
      */
-    virtual bool trainAuto( const Ptr<cv::ml::TrainData>& data, int kFold = 10,
-                    ParamGrid Cgrid = SVM::getDefaultGrid(SVM::C),
-                    ParamGrid gammaGrid  = SVM::getDefaultGrid(SVM::GAMMA),
-                    ParamGrid pGrid      = SVM::getDefaultGrid(SVM::P),
-                    ParamGrid nuGrid     = SVM::getDefaultGrid(SVM::NU),
-                    ParamGrid coeffGrid  = SVM::getDefaultGrid(SVM::COEF),
-                    ParamGrid degreeGrid = SVM::getDefaultGrid(SVM::DEGREE),
+    virtual bool trainAuto( const Ptr<TrainData>& data, int kFold = 10,
+                    ParamGrid Cgrid = getDefaultGrid(C),
+                    ParamGrid gammaGrid  = getDefaultGrid(GAMMA),
+                    ParamGrid pGrid      = getDefaultGrid(P),
+                    ParamGrid nuGrid     = getDefaultGrid(NU),
+                    ParamGrid coeffGrid  = getDefaultGrid(COEF),
+                    ParamGrid degreeGrid = getDefaultGrid(DEGREE),
                     bool balanced=false) = 0;
+
+    /** @brief Trains an %SVM with optimal parameters
+
+    @param samples training samples
+    @param layout See ml::SampleTypes.
+    @param responses vector of responses associated with the training samples.
+    @param kFold Cross-validation parameter. The training set is divided into kFold subsets. One
+        subset is used to test the model, the others form the train set. So, the %SVM algorithm is
+    @param Cgrid grid for C
+    @param gammaGrid grid for gamma
+    @param pGrid grid for p
+    @param nuGrid grid for nu
+    @param coeffGrid grid for coeff
+    @param degreeGrid grid for degree
+    @param balanced If true and the problem is 2-class classification then the method creates more
+        balanced cross-validation subsets that is proportions between classes in subsets are close
+        to such proportion in the whole train dataset.
+
+    The method trains the %SVM model automatically by choosing the optimal parameters C, gamma, p,
+    nu, coef0, degree. Parameters are considered optimal when the cross-validation
+    estimate of the test set error is minimal.
+
+    This function only makes use of SVM::getDefaultGrid for parameter optimization and thus only
+    offers rudimentary parameter options.
+
+    This function works for the classification (SVM::C_SVC or SVM::NU_SVC) as well as for the
+    regression (SVM::EPS_SVR or SVM::NU_SVR). If it is SVM::ONE_CLASS, no optimization is made and
+    the usual %SVM with parameters specified in params is executed.
+    */
+    CV_WRAP bool trainAuto(InputArray samples,
+            int layout,
+            InputArray responses,
+            int kFold = 10,
+            Ptr<ParamGrid> Cgrid = SVM::getDefaultGridPtr(SVM::C),
+            Ptr<ParamGrid> gammaGrid  = SVM::getDefaultGridPtr(SVM::GAMMA),
+            Ptr<ParamGrid> pGrid      = SVM::getDefaultGridPtr(SVM::P),
+            Ptr<ParamGrid> nuGrid     = SVM::getDefaultGridPtr(SVM::NU),
+            Ptr<ParamGrid> coeffGrid  = SVM::getDefaultGridPtr(SVM::COEF),
+            Ptr<ParamGrid> degreeGrid = SVM::getDefaultGridPtr(SVM::DEGREE),
+            bool balanced=false);
 
     /** @brief Retrieves all the support vectors
 
@@ -717,6 +780,16 @@ public:
     passed to the function SVM::trainAuto.
      */
     static ParamGrid getDefaultGrid( int param_id );
+
+    /** @brief Generates a grid for %SVM parameters.
+
+    @param param_id %SVM parameters IDs that must be one of the SVM::ParamTypes. The grid is
+    generated for the parameter with this ID.
+
+    The function generates a grid pointer for the specified parameter of the %SVM algorithm.
+    The grid may be passed to the function SVM::trainAuto.
+     */
+    CV_WRAP static Ptr<ParamGrid> getDefaultGridPtr( int param_id );
 
     /** Creates empty model.
     Use StatModel::train to train the model. Since %SVM has several parameters, you may want to
@@ -813,6 +886,15 @@ public:
     each matrix is a square floating-point matrix NxN, where N is the space dimensionality.
      */
     CV_WRAP virtual void getCovs(CV_OUT std::vector<Mat>& covs) const = 0;
+
+    /** @brief Returns posterior probabilities for the provided samples
+
+    @param samples The input samples, floating-point matrix
+    @param results The optional output \f$ nSamples \times nClusters\f$ matrix of results. It contains
+    posterior probabilities for each sample from the input
+    @param flags This parameter will be ignored
+     */
+    CV_WRAP virtual float predict( InputArray samples, OutputArray results=noArray(), int flags=0 ) const = 0;
 
     /** @brief Returns a likelihood logarithm value and an index of the most probable mixture component
     for the given sample.
@@ -923,6 +1005,17 @@ public:
     can use one of the EM::train\* methods or load it from file using Algorithm::load\<EM\>(filename).
      */
     CV_WRAP static Ptr<EM> create();
+
+    /** @brief Loads and creates a serialized EM from a file
+     *
+     * Use EM::save to serialize and store an EM to disk.
+     * Load the EM from this file again, by calling this function with the path to the file.
+     * Optionally specify the node for the file containing the classifier
+     *
+     * @param filepath path to serialized EM
+     * @param nodeName name of node containing the classifier
+     */
+    CV_WRAP static Ptr<EM> load(const String& filepath , const String& nodeName = String());
 };
 
 /****************************************************************************************\
@@ -1111,6 +1204,17 @@ public:
     file using Algorithm::load\<DTrees\>(filename).
      */
     CV_WRAP static Ptr<DTrees> create();
+
+    /** @brief Loads and creates a serialized DTrees from a file
+     *
+     * Use DTree::save to serialize and store an DTree to disk.
+     * Load the DTree from this file again, by calling this function with the path to the file.
+     * Optionally specify the node for the file containing the classifier
+     *
+     * @param filepath path to serialized DTree
+     * @param nodeName name of node containing the classifier
+     */
+    CV_WRAP static Ptr<DTrees> load(const String& filepath , const String& nodeName = String());
 };
 
 /****************************************************************************************\
@@ -1160,11 +1264,33 @@ public:
      */
     CV_WRAP virtual Mat getVarImportance() const = 0;
 
+    /** Returns the result of each individual tree in the forest.
+    In case the model is a regression problem, the method will return each of the trees'
+    results for each of the sample cases. If the model is a classifier, it will return
+    a Mat with samples + 1 rows, where the first row gives the class number and the
+    following rows return the votes each class had for each sample.
+        @param samples Array containg the samples for which votes will be calculated.
+        @param results Array where the result of the calculation will be written.
+        @param flags Flags for defining the type of RTrees.
+    */
+    CV_WRAP void getVotes(InputArray samples, OutputArray results, int flags) const;
+
     /** Creates the empty model.
     Use StatModel::train to train the model, StatModel::train to create and train the model,
     Algorithm::load to load the pre-trained model.
      */
     CV_WRAP static Ptr<RTrees> create();
+
+    /** @brief Loads and creates a serialized RTree from a file
+     *
+     * Use RTree::save to serialize and store an RTree to disk.
+     * Load the RTree from this file again, by calling this function with the path to the file.
+     * Optionally specify the node for the file containing the classifier
+     *
+     * @param filepath path to serialized RTree
+     * @param nodeName name of node containing the classifier
+     */
+    CV_WRAP static Ptr<RTrees> load(const String& filepath , const String& nodeName = String());
 };
 
 /****************************************************************************************\
@@ -1214,6 +1340,17 @@ public:
     /** Creates the empty model.
     Use StatModel::train to train the model, Algorithm::load\<Boost\>(filename) to load the pre-trained model. */
     CV_WRAP static Ptr<Boost> create();
+
+    /** @brief Loads and creates a serialized Boost from a file
+     *
+     * Use Boost::save to serialize and store an RTree to disk.
+     * Load the Boost from this file again, by calling this function with the path to the file.
+     * Optionally specify the node for the file containing the classifier
+     *
+     * @param filepath path to serialized Boost
+     * @param nodeName name of node containing the classifier
+     */
+    CV_WRAP static Ptr<Boost> load(const String& filepath , const String& nodeName = String());
 };
 
 /****************************************************************************************\
@@ -1269,13 +1406,14 @@ public:
     /** Available training methods */
     enum TrainingMethods {
         BACKPROP=0, //!< The back-propagation algorithm.
-        RPROP=1 //!< The RPROP algorithm. See @cite RPROP93 for details.
+        RPROP = 1, //!< The RPROP algorithm. See @cite RPROP93 for details.
+        ANNEAL = 2 //!< The simulated annealing algorithm. See @cite Kirkpatrick83 for details.
     };
 
     /** Sets training method and common parameters.
     @param method Default value is ANN_MLP::RPROP. See ANN_MLP::TrainingMethods.
-    @param param1 passed to setRpropDW0 for ANN_MLP::RPROP and to setBackpropWeightScale for ANN_MLP::BACKPROP
-    @param param2 passed to setRpropDWMin for ANN_MLP::RPROP and to setBackpropMomentumScale for ANN_MLP::BACKPROP.
+    @param param1 passed to setRpropDW0 for ANN_MLP::RPROP and to setBackpropWeightScale for ANN_MLP::BACKPROP and to initialT for ANN_MLP::ANNEAL.
+    @param param2 passed to setRpropDWMin for ANN_MLP::RPROP and to setBackpropMomentumScale for ANN_MLP::BACKPROP and to finalT for ANN_MLP::ANNEAL.
     */
     CV_WRAP virtual void setTrainMethod(int method, double param1 = 0, double param2 = 0) = 0;
 
@@ -1362,18 +1500,53 @@ public:
     /** @copybrief getRpropDWMax @see getRpropDWMax */
     CV_WRAP virtual void setRpropDWMax(double val) = 0;
 
+    /** ANNEAL: Update initial temperature.
+    It must be \>=0. Default value is 10.*/
+    /** @see setAnnealInitialT */
+    CV_WRAP double getAnnealInitialT() const;
+    /** @copybrief getAnnealInitialT @see getAnnealInitialT */
+    CV_WRAP void setAnnealInitialT(double val);
+
+    /** ANNEAL: Update final temperature.
+    It must be \>=0 and less than initialT. Default value is 0.1.*/
+    /** @see setAnnealFinalT */
+    CV_WRAP double getAnnealFinalT() const;
+    /** @copybrief getAnnealFinalT @see getAnnealFinalT */
+    CV_WRAP void setAnnealFinalT(double val);
+
+    /** ANNEAL: Update cooling ratio.
+    It must be \>0 and less than 1. Default value is 0.95.*/
+    /** @see setAnnealCoolingRatio */
+    CV_WRAP double getAnnealCoolingRatio() const;
+    /** @copybrief getAnnealCoolingRatio @see getAnnealCoolingRatio */
+    CV_WRAP void setAnnealCoolingRatio(double val);
+
+    /** ANNEAL: Update iteration per step.
+    It must be \>0 . Default value is 10.*/
+    /** @see setAnnealItePerStep */
+    CV_WRAP int getAnnealItePerStep() const;
+    /** @copybrief getAnnealItePerStep @see getAnnealItePerStep */
+    CV_WRAP void setAnnealItePerStep(int val);
+
+    /** @brief Set/initialize anneal RNG */
+    void setAnnealEnergyRNG(const RNG& rng);
+
     /** possible activation functions */
     enum ActivationFunctions {
         /** Identity function: \f$f(x)=x\f$ */
         IDENTITY = 0,
-        /** Symmetrical sigmoid: \f$f(x)=\beta*(1-e^{-\alpha x})/(1+e^{-\alpha x}\f$
+        /** Symmetrical sigmoid: \f$f(x)=\beta*(1-e^{-\alpha x})/(1+e^{-\alpha x})\f$
         @note
         If you are using the default sigmoid activation function with the default parameter values
         fparam1=0 and fparam2=0 then the function used is y = 1.7159\*tanh(2/3 \* x), so the output
         will range from [-1.7159, 1.7159], instead of [0,1].*/
         SIGMOID_SYM = 1,
         /** Gaussian function: \f$f(x)=\beta e^{-\alpha x*x}\f$ */
-        GAUSSIAN = 2
+        GAUSSIAN = 2,
+        /** ReLU function: \f$f(x)=max(0,x)\f$ */
+        RELU = 3,
+        /** Leaky ReLU function: for x>0 \f$f(x)=x \f$ and x<=0 \f$f(x)=\alpha x \f$*/
+        LEAKYRELU= 4
     };
 
     /** Train options */
@@ -1497,6 +1670,17 @@ public:
     Creates Logistic Regression model with parameters given.
      */
     CV_WRAP static Ptr<LogisticRegression> create();
+
+    /** @brief Loads and creates a serialized LogisticRegression from a file
+     *
+     * Use LogisticRegression::save to serialize and store an LogisticRegression to disk.
+     * Load the LogisticRegression from this file again, by calling this function with the path to the file.
+     * Optionally specify the node for the file containing the classifier
+     *
+     * @param filepath path to serialized LogisticRegression
+     * @param nodeName name of node containing the classifier
+     */
+    CV_WRAP static Ptr<LogisticRegression> load(const String& filepath , const String& nodeName = String());
 };
 
 
@@ -1612,6 +1796,17 @@ public:
     */
     CV_WRAP static Ptr<SVMSGD> create();
 
+    /** @brief Loads and creates a serialized SVMSGD from a file
+     *
+     * Use SVMSGD::save to serialize and store an SVMSGD to disk.
+     * Load the SVMSGD from this file again, by calling this function with the path to the file.
+     * Optionally specify the node for the file containing the classifier
+     *
+     * @param filepath path to serialized SVMSGD
+     * @param nodeName name of node containing the classifier
+     */
+    CV_WRAP static Ptr<SVMSGD> load(const String& filepath , const String& nodeName = String());
+
     /** @brief Function sets optimal parameters values for chosen SVM SGD model.
      * @param svmsgdType is the type of SVMSGD classifier.
      * @param marginType is the type of margin constraint.
@@ -1675,12 +1870,118 @@ CV_EXPORTS void randMVNormal( InputArray mean, InputArray cov, int nsamples, Out
 CV_EXPORTS void createConcentricSpheresTestSet( int nsamples, int nfeatures, int nclasses,
                                                 OutputArray samples, OutputArray responses);
 
+/** @brief Artificial Neural Networks - Multi-Layer Perceptrons.
+
+@sa @ref ml_intro_ann
+*/
+class CV_EXPORTS_W ANN_MLP_ANNEAL : public ANN_MLP
+{
+public:
+    /** @see setAnnealInitialT */
+    CV_WRAP virtual double getAnnealInitialT() const = 0;
+    /** @copybrief getAnnealInitialT @see getAnnealInitialT */
+    CV_WRAP virtual void setAnnealInitialT(double val) = 0;
+
+    /** ANNEAL: Update final temperature.
+    It must be \>=0 and less than initialT. Default value is 0.1.*/
+    /** @see setAnnealFinalT */
+    CV_WRAP  virtual double getAnnealFinalT() const = 0;
+    /** @copybrief getAnnealFinalT @see getAnnealFinalT */
+    CV_WRAP  virtual void setAnnealFinalT(double val) = 0;
+
+    /** ANNEAL: Update cooling ratio.
+    It must be \>0 and less than 1. Default value is 0.95.*/
+    /** @see setAnnealCoolingRatio */
+    CV_WRAP  virtual double getAnnealCoolingRatio() const = 0;
+    /** @copybrief getAnnealCoolingRatio @see getAnnealCoolingRatio */
+    CV_WRAP  virtual void setAnnealCoolingRatio(double val) = 0;
+
+    /** ANNEAL: Update iteration per step.
+    It must be \>0 . Default value is 10.*/
+    /** @see setAnnealItePerStep */
+    CV_WRAP virtual int getAnnealItePerStep() const = 0;
+    /** @copybrief getAnnealItePerStep @see getAnnealItePerStep */
+    CV_WRAP virtual void setAnnealItePerStep(int val) = 0;
+
+    /** @brief Set/initialize anneal RNG */
+    virtual void setAnnealEnergyRNG(const RNG& rng) = 0;
+};
+
+
+/****************************************************************************************\
+*                                   Simulated annealing solver                             *
+\****************************************************************************************/
+
+/** @brief The class defines interface for system state used in simulated annealing optimization algorithm.
+
+@cite Kirkpatrick83 for details
+*/
+class CV_EXPORTS SimulatedAnnealingSolverSystem
+{
+protected:
+    inline SimulatedAnnealingSolverSystem() {}
+public:
+    virtual ~SimulatedAnnealingSolverSystem() {}
+
+    /** Give energy value for a state of system.*/
+    virtual double energy() const = 0;
+    /** Function which change the state of system (random pertubation).*/
+    virtual void changeState() = 0;
+    /** Function to reverse to the previous state. Can be called once only after changeState(). */
+    virtual void reverseState() = 0;
+};
+
+/** @brief The class implements simulated annealing for optimization.
+ *
+@cite Kirkpatrick83 for details
+*/
+class CV_EXPORTS SimulatedAnnealingSolver : public Algorithm
+{
+public:
+    SimulatedAnnealingSolver(const Ptr<SimulatedAnnealingSolverSystem>& system);
+    inline ~SimulatedAnnealingSolver() { release(); }
+
+    /** Simulated annealing procedure. */
+    int run();
+    /** Set/initialize RNG (energy).
+    @param rng new RNG
+    */
+    void setEnergyRNG(const RNG& rng);
+    /** Set initial temperature of simulated annealing procedure.
+    @param x new initial temperature. x\>0
+    */
+    void setInitialTemperature(double x);
+    /** Set final temperature of simulated annealing procedure.
+    @param x new final temperature value. 0\<x\<initial temperature
+    */
+    void setFinalTemperature(double x);
+    /** Get final temperature of simulated annealing procedure. */
+    double getFinalTemperature();
+    /** Set setCoolingRatio of simulated annealing procedure : T(t) = coolingRatio * T(t-1).
+    @param x new cooling ratio value. 0\<x\<1
+    */
+    void setCoolingRatio(double x);
+    /** Set number iteration per temperature step.
+    @param ite number of iteration per temperature step ite \> 0
+    */
+    void setIterPerStep(int ite);
+
+    void release();
+    SimulatedAnnealingSolver(const SimulatedAnnealingSolver&);
+    SimulatedAnnealingSolver& operator=(const SimulatedAnnealingSolver&);
+
+    struct Impl; friend struct Impl;
+protected:
+    Impl* impl;
+};
+
+
 //! @} ml
 
 }
 }
 
 #endif // __cplusplus
-#endif // __OPENCV_ML_HPP__
+#endif // OPENCV_ML_HPP
 
 /* End of file. */
