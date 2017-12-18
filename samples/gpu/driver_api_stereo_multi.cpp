@@ -14,15 +14,10 @@
 #include "opencv2/cudastereo.hpp"
 
 #ifdef HAVE_TBB
-#  include "tbb/tbb_stddef.h"
-#  if TBB_VERSION_MAJOR*100 + TBB_VERSION_MINOR >= 202
-#    include "tbb/tbb.h"
-#    include "tbb/task.h"
-#    undef min
-#    undef max
-#  else
-#    undef HAVE_TBB
-#  endif
+#  include "tbb/tbb.h"
+#  include "tbb/task.h"
+#  undef min
+#  undef max
 #endif
 
 #if !defined(HAVE_CUDA) || !defined(HAVE_TBB) || defined(__arm__)
@@ -90,7 +85,7 @@ GpuMat d_result[2];
 
 static void printHelp()
 {
-    std::cout << "Usage: driver_api_stereo_multi_gpu --left <left_image> --right <right_image>\n";
+    std::cout << "Usage: driver_api_stereo_multi --left <left_image> --right <right_image>\n";
 }
 
 int main(int argc, char** argv)

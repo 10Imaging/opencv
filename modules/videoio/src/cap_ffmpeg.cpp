@@ -43,7 +43,7 @@
 
 #include <string>
 
-#if defined HAVE_FFMPEG && !defined WIN32
+#if defined HAVE_FFMPEG && !defined _WIN32
 #include "cap_ffmpeg_impl.hpp"
 #else
 #include "cap_ffmpeg_api.hpp"
@@ -61,13 +61,15 @@ static CvWriteFrame_Plugin icvWriteFrame_FFMPEG_p = 0;
 
 static cv::Mutex _icvInitFFMPEG_mutex;
 
-#if defined WIN32 || defined _WIN32
+#if defined _WIN32
 static const HMODULE cv_GetCurrentModule()
 {
     HMODULE h = 0;
+#if _WIN32_WINNT >= 0x0501
     ::GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
         reinterpret_cast<LPCTSTR>(cv_GetCurrentModule),
         &h);
+#endif
     return h;
 }
 #endif
@@ -82,7 +84,7 @@ public:
     }
 
 private:
-    #if defined WIN32 || defined _WIN32
+    #if defined _WIN32
     HMODULE icvFFOpenCV;
 
     ~icvInitFFMPEG()
@@ -97,23 +99,17 @@ private:
 
     icvInitFFMPEG()
     {
-    #if defined WIN32 || defined _WIN32
+    #if defined _WIN32
+        const wchar_t* module_name_ = L"opencv_ffmpeg"
+            CVAUX_STRW(CV_MAJOR_VERSION) CVAUX_STRW(CV_MINOR_VERSION) CVAUX_STRW(CV_SUBMINOR_VERSION)
+        #if (defined _MSC_VER && defined _M_X64) || (defined __GNUC__ && defined __x86_64__)
+            L"_64"
+        #endif
+            L".dll";
     # ifdef WINRT
-        const wchar_t* module_name = L"opencv_ffmpeg"
-            CVAUX_STRW(CV_MAJOR_VERSION) CVAUX_STRW(CV_MINOR_VERSION) CVAUX_STRW(CV_SUBMINOR_VERSION)
-        #if (defined _MSC_VER && defined _M_X64) || (defined __GNUC__ && defined __x86_64__)
-            L"_64"
-        #endif
-            L".dll";
-
-        icvFFOpenCV = LoadPackagedLibrary( module_name, 0 );
+        icvFFOpenCV = LoadPackagedLibrary( module_name_, 0 );
     # else
-        const std::wstring module_name = L"opencv_ffmpeg"
-            CVAUX_STRW(CV_MAJOR_VERSION) CVAUX_STRW(CV_MINOR_VERSION) CVAUX_STRW(CV_SUBMINOR_VERSION)
-        #if (defined _MSC_VER && defined _M_X64) || (defined __GNUC__ && defined __x86_64__)
-            L"_64"
-        #endif
-            L".dll";
+        const std::wstring module_name(module_name_);
 
         const wchar_t* ffmpeg_env_path = _wgetenv(L"OPENCV_FFMPEG_DLL_DIR");
         std::wstring module_path =
@@ -128,8 +124,10 @@ private:
             if (m)
             {
                 wchar_t path[MAX_PATH];
-                size_t sz = GetModuleFileNameW(m, path, sizeof(path));
-                if (sz > 0 && ERROR_SUCCESS == GetLastError())
+                const size_t path_size = sizeof(path)/sizeof(*path);
+                size_t sz = GetModuleFileNameW(m, path, path_size);
+                /* Don't handle paths longer than MAX_PATH until that becomes a real issue */
+                if (sz > 0 && sz < path_size)
                 {
                     wchar_t* s = wcsrchr(path, L'\\');
                     if (s)

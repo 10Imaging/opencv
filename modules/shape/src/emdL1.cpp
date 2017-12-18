@@ -494,6 +494,7 @@ void EmdL1::initBVTree()
             }
             if(pNxtN != pCurN->pParent)
             {
+                CV_Assert(pNxtN != NULL);
                 pNxtE = pNxtN->pChild;
                 if(pNxtE && pNxtE->pChild==pCurN) // has connection
                 {
@@ -592,6 +593,7 @@ void EmdL1::findNewSolution()
     findLoopFromEnterBV();
     // Modify flow values along the loop
     cvPEmdEdge pE = NULL;
+    CV_Assert(m_pLeave != NULL);
     float	minFlow = m_pLeave->flow;
     int k;
     for(k=0; k<m_iFrom; k++)
@@ -787,6 +789,8 @@ float EmdL1::compuTotalFlow()
 
 float cv::EMDL1(InputArray _signature1, InputArray _signature2)
 {
+    CV_INSTRUMENT_REGION()
+
     Mat signature1 = _signature1.getMat(), signature2 = _signature2.getMat();
     EmdL1 emdl1;
     return emdl1.getEMDL1(signature1, signature2);

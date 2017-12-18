@@ -140,20 +140,16 @@ inline int hal_ni_filterFree(cvhalFilter2D *context) { return CV_HAL_ERROR_NOT_I
    @param dst_type destination image type
    @param kernel_type kernels type
    @param kernelx_data pointer to x-kernel data
-   @param kernelx_step x-kernel step
-   @param kernelx_width x-kernel width
-   @param kernelx_height x-kernel height
+   @param kernelx_length x-kernel vector length
    @param kernely_data pointer to y-kernel data
-   @param kernely_step y-kernel step
-   @param kernely_width y-kernel width
-   @param kernely_height y-kernel height
+   @param kernely_length y-kernel vector length
    @param anchor_x relative X position of center point within the kernel
    @param anchor_y relative Y position of center point within the kernel
    @param delta added to pixel values
    @param borderType border processing mode (CV_HAL_BORDER_REFLECT, ...)
    @sa cv::sepFilter2D, cv::hal::SepFilter2D
  */
-inline int hal_ni_sepFilterInit(cvhalFilter2D **context, int src_type, int dst_type, int kernel_type, uchar *kernelx_data, size_t kernelx_step, int kernelx_width, int kernelx_height, uchar *kernely_data, size_t kernely_step, int kernely_width, int kernely_height, int anchor_x, int anchor_y, double delta, int borderType) { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+inline int hal_ni_sepFilterInit(cvhalFilter2D **context, int src_type, int dst_type, int kernel_type, uchar *kernelx_data, int kernelx_length, uchar *kernely_data, int kernely_length, int anchor_x, int anchor_y, double delta, int borderType) { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
 /**
    @brief hal_sepFilter
    @param context pointer to user-defined context
@@ -267,7 +263,7 @@ inline int hal_ni_resize(int src_type, const uchar *src_data, size_t src_step, i
    @param dst_step destination image step
    @param dst_width destination image width
    @param dst_height destination image height
-   @param M 3x2 matrix with transform coefficients
+   @param M 2x3 matrix with transform coefficients
    @param interpolation interpolation mode (CV_HAL_INTER_NEAREST, ...)
    @param borderType border processing mode (CV_HAL_BORDER_REFLECT, ...)
    @param borderValue values to use for CV_HAL_BORDER_CONSTANT mode
@@ -587,6 +583,179 @@ inline int hal_ni_cvtMultipliedRGBAtoRGBA(const uchar * src_data, size_t src_ste
 #define cv_hal_cvtMultipliedRGBAtoRGBA hal_ni_cvtMultipliedRGBAtoRGBA
 //! @endcond
 
+/**
+   @brief Calculate integral image
+   @param depth,sdepth,sqdepth Depths of source image, sum image and square sum image
+   @param src_data,src_step Source image
+   @param sum_data,sum_step Sum image
+   @param sqsum_data,sqsum_step Square sum image
+   @param tilted_data,tilted_step Tilted sum image
+   @param width,height Source image dimensions
+   @param cn Number of channels
+   @note Following combinations of image depths are used:
+   Source | Sum | Square sum
+   -------|-----|-----------
+   CV_8U | CV_32S | CV_64F
+   CV_8U | CV_32S | CV_32F
+   CV_8U | CV_32S | CV_32S
+   CV_8U | CV_32F | CV_64F
+   CV_8U | CV_32F | CV_32F
+   CV_8U | CV_64F | CV_64F
+   CV_16U | CV_64F | CV_64F
+   CV_16S | CV_64F | CV_64F
+   CV_32F | CV_32F | CV_64F
+   CV_32F | CV_32F | CV_32F
+   CV_32F | CV_64F | CV_64F
+   CV_64F | CV_64F | CV_64F
+   @sa cv::integral
+*/
+inline int hal_ni_integral(int depth, int sdepth, int sqdepth, const uchar * src_data, size_t src_step, uchar * sum_data, size_t sum_step, uchar * sqsum_data, size_t sqsum_step, uchar * tilted_data, size_t tilted_step, int width, int height, int cn) { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+
+//! @cond IGNORED
+#define cv_hal_integral hal_ni_integral
+//! @endcond
+
+/**
+   @brief Calculate medianBlur filter
+   @param src_data,src_step Source image
+   @param dst_data,dst_step Destination image
+   @param width,height Source image dimensions
+   @param depth Depths of source and destination image
+   @param cn Number of channels
+   @param ksize Size of kernel
+*/
+inline int hal_ni_medianBlur(const uchar* src_data, size_t src_step, uchar* dst_data, size_t dst_step, int width, int height, int depth, int cn, int ksize) { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+
+//! @cond IGNORED
+#define cv_hal_medianBlur hal_ni_medianBlur
+//! @endcond
+
+/**
+   @brief Calculates adaptive threshold
+   @param src_data,src_step Source image
+   @param dst_data,dst_step Destination image
+   @param width,height Source image dimensions
+   @param maxValue Value assigned to the pixels for which the condition is satisfied
+   @param adaptiveMethod Adaptive thresholding algorithm
+   @param thresholdType Thresholding type
+   @param blockSize Size of a pixel neighborhood that is used to calculate a threshold value
+   @param C Constant subtracted from the mean or weighted mean
+*/
+inline int hal_ni_adaptiveThreshold(const uchar* src_data, size_t src_step, uchar* dst_data, size_t dst_step, int width, int height, double maxValue, int adaptiveMethod, int thresholdType, int blockSize, double C) { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+
+//! @cond IGNORED
+#define cv_hal_adaptiveThreshold  hal_ni_adaptiveThreshold
+//! @endcond
+
+/**
+   @brief Calculates fixed-level threshold to each array element
+   @param src_data,src_step Source image
+   @param dst_data,dst_step Destination image
+   @param width,height Source image dimensions
+   @param depth Depths of source and destination image
+   @param cn Number of channels
+   @param thresh Threshold value
+   @param maxValue Value assigned to the pixels for which the condition is satisfied
+   @param thresholdType Thresholding type
+*/
+inline int hal_ni_threshold(const uchar* src_data, size_t src_step, uchar* dst_data, size_t dst_step, int width, int height, int depth, int cn, double thresh, double maxValue, int thresholdType) { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+
+//! @cond IGNORED
+#define cv_hal_threshold hal_ni_threshold
+//! @endcond
+
+/**
+   @brief Calculate box filter
+   @param src_data,src_step Source image
+   @param dst_data,dst_step Destination image
+   @param width,height Source image dimensions
+   @param src_depth,dst_depth Depths of source and destination image
+   @param cn Number of channels
+   @param margin_left,margin_top,margin_right,margin_bottom Margins for source image
+   @param ksize_width,ksize_height Size of kernel
+   @param anchor_x,anchor_y Anchor point
+   @param normalize If true then result is normalized
+   @param border_type Border type
+*/
+inline int hal_ni_boxFilter(const uchar* src_data, size_t src_step, uchar* dst_data, size_t dst_step, int width, int height, int src_depth, int dst_depth, int cn, int margin_left, int margin_top, int margin_right, int margin_bottom, size_t ksize_width, size_t ksize_height, int anchor_x, int anchor_y, bool normalize, int border_type) { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+
+//! @cond IGNORED
+#define cv_hal_boxFilter hal_ni_boxFilter
+//! @endcond
+
+/**
+   @brief Blurs an image using a Gaussian filter.
+   @param src_data,src_step Source image
+   @param dst_data,dst_step Destination image
+   @param width,height Source image dimensions
+   @param depth Depth of source and destination image
+   @param cn Number of channels
+   @param margin_left,margin_top,margin_right,margin_bottom Margins for source image
+   @param ksize_width,ksize_height Size of kernel
+   @param sigmaX,sigmaY Gaussian kernel standard deviation.
+   @param border_type Border type
+*/
+inline int hal_ni_gaussianBlur(const uchar* src_data, size_t src_step, uchar* dst_data, size_t dst_step, int width, int height, int depth, int cn, size_t margin_left, size_t margin_top, size_t margin_right, size_t margin_bottom, size_t ksize_width, size_t ksize_height, double sigmaX, double sigmaY, int border_type) { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+
+//! @cond IGNORED
+#define cv_hal_gaussianBlur hal_ni_gaussianBlur
+//! @endcond
+
+/**
+   @brief Computes Sobel derivatives
+   @param src_depth,dst_depth Depths of source and destination image
+   @param src_data,src_step Source image
+   @param dst_data,dst_step Destination image
+   @param width,height Source image dimensions
+   @param cn Number of channels
+   @param margin_left,margin_top,margin_right,margin_bottom Margins for source image
+   @param dx,dy orders of the derivative x and y respectively
+   @param ksize Size of kernel
+   @param scale Scale factor for the computed derivative values
+   @param delta Delta value that is added to the results prior to storing them in dst
+   @param border_type Border type
+*/
+inline int hal_ni_sobel(const uchar* src_data, size_t src_step, uchar* dst_data, size_t dst_step, int width, int height, int src_depth, int dst_depth, int cn, int margin_left, int margin_top, int margin_right, int margin_bottom, int dx, int dy, int ksize, double scale, double delta, int border_type) { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+
+//! @cond IGNORED
+#define cv_hal_sobel hal_ni_sobel
+//! @endcond
+
+/**
+   @brief Computes Scharr filter
+   @param src_depth,dst_depth Depths of source and destination image
+   @param src_data,src_step Source image
+   @param dst_data,dst_step Destination image
+   @param width,height Source image dimensions
+   @param cn Number of channels
+   @param margin_left,margin_top,margin_right,margin_bottom Margins for source image
+   @param dx,dy orders of the derivative x and y respectively
+   @param scale Scale factor for the computed derivative values
+   @param delta Delta value that is added to the results prior to storing them in dst
+   @param border_type Border type
+*/
+inline int hal_ni_scharr(const uchar* src_data, size_t src_step, uchar* dst_data, size_t dst_step, int width, int height, int src_depth, int dst_depth, int cn, int margin_left, int margin_top, int margin_right, int margin_bottom, int dx, int dy, double scale, double delta, int border_type)  { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+
+//! @cond IGNORED
+#define cv_hal_scharr hal_ni_scharr
+//! @endcond
+
+/**
+   @brief Perform Gaussian Blur and downsampling for input tile.
+   @param depth Depths of source and destination image
+   @param src_data,src_step Source image
+   @param dst_data,dst_step Destination image
+   @param src_width,src_height Source image dimensions
+   @param dst_width,dst_height Destination image dimensions
+   @param cn Number of channels
+   @param border_type Border type
+*/
+inline int hal_ni_pyrdown(const uchar* src_data, size_t src_step, int src_width, int src_height, uchar* dst_data, size_t dst_step, int dst_width, int dst_height, int depth, int cn, int border_type) { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+
+//! @cond IGNORED
+#define cv_hal_pyrdown hal_ni_pyrdown
+//! @endcond
+
 //! @}
 
 #if defined __GNUC__
@@ -599,7 +768,7 @@ inline int hal_ni_cvtMultipliedRGBAtoRGBA(const uchar * src_data, size_t src_ste
 
 //! @cond IGNORED
 #define CALL_HAL_RET(name, fun, retval, ...) \
-    int res = fun(__VA_ARGS__, &retval); \
+    int res = __CV_EXPAND(fun(__VA_ARGS__, &retval)); \
     if (res == CV_HAL_ERROR_OK) \
         return retval; \
     else if (res != CV_HAL_ERROR_NOT_IMPLEMENTED) \
@@ -608,7 +777,7 @@ inline int hal_ni_cvtMultipliedRGBAtoRGBA(const uchar * src_data, size_t src_ste
 
 
 #define CALL_HAL(name, fun, ...) \
-    int res = fun(__VA_ARGS__); \
+    int res = __CV_EXPAND(fun(__VA_ARGS__)); \
     if (res == CV_HAL_ERROR_OK) \
         return; \
     else if (res != CV_HAL_ERROR_NOT_IMPLEMENTED) \

@@ -62,6 +62,8 @@ public:
 
     void process(InputArray _src, OutputArray _dst)
     {
+        CV_INSTRUMENT_REGION()
+
         Mat src = _src.getMat();
         CV_Assert(!src.empty());
         _dst.create(src.size(), CV_32FC3);
@@ -118,6 +120,8 @@ public:
 
     void process(InputArray _src, OutputArray _dst)
     {
+        CV_INSTRUMENT_REGION()
+
         Mat src = _src.getMat();
         CV_Assert(!src.empty());
         _dst.create(src.size(), CV_32FC3);
@@ -203,6 +207,8 @@ public:
 
     void process(InputArray _src, OutputArray _dst)
     {
+        CV_INSTRUMENT_REGION()
+
         Mat src = _src.getMat();
         CV_Assert(!src.empty());
         _dst.create(src.size(), CV_32FC3);
@@ -288,6 +294,8 @@ public:
 
     void process(InputArray _src, OutputArray _dst)
     {
+        CV_INSTRUMENT_REGION()
+
         Mat src = _src.getMat();
         CV_Assert(!src.empty());
         _dst.create(src.size(), CV_32FC3);
@@ -383,6 +391,8 @@ public:
 
     void process(InputArray _src, OutputArray _dst)
     {
+        CV_INSTRUMENT_REGION()
+
         Mat src = _src.getMat();
         CV_Assert(!src.empty());
         _dst.create(src.size(), CV_32FC3);
@@ -509,7 +519,7 @@ protected:
         for(int i = 0; i < levels; i++) {
             getGradient(layer, x_contrast[i], 0);
             getGradient(layer.t(), y_contrast[i], 0);
-            resize(layer, layer, Size(layer.cols / 2, layer.rows / 2));
+            resize(layer, layer, Size(layer.cols / 2, layer.rows / 2), 0, 0, INTER_LINEAR);
         }
     }
 
@@ -524,7 +534,7 @@ protected:
             Mat grad_x, grad_y;
             getGradient(x_contrast[i], grad_x, 1);
             getGradient(y_contrast[i], grad_y, 1);
-            resize(sum, sum, x_contrast[i].size());
+            resize(sum, sum, x_contrast[i].size(), 0, 0, INTER_LINEAR);
             sum += grad_x + grad_y.t();
         }
     }

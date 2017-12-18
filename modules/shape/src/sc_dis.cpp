@@ -72,6 +72,7 @@ public:
         shapeContextWeight=1.0f;
         sigma=10.0f;
         name_ = "ShapeDistanceExtractor.SCD";
+        costFlag = 0;
     }
 
     /* Destructor */
@@ -186,6 +187,8 @@ protected:
 
 float ShapeContextDistanceExtractorImpl::computeDistance(InputArray contour1, InputArray contour2)
 {
+    CV_INSTRUMENT_REGION()
+
     // Checking //
     Mat sset1=contour1.getMat(), sset2=contour2.getMat(), set1, set2;
     if (set1.type() != CV_32F)
@@ -200,6 +203,13 @@ float ShapeContextDistanceExtractorImpl::computeDistance(InputArray contour1, In
 
     CV_Assert((set1.channels()==2) && (set1.cols>0));
     CV_Assert((set2.channels()==2) && (set2.cols>0));
+
+    // Force vectors column-based
+    if (set1.dims > 1)
+        set1 = set1.reshape(2, 1);
+    if (set2.dims > 1)
+        set2 = set2.reshape(2, 1);
+
     if (imageAppearanceWeight!=0)
     {
         CV_Assert((!image1.empty()) && (!image2.empty()));
@@ -271,13 +281,13 @@ float ShapeContextDistanceExtractorImpl::computeDistance(InputArray contour1, In
         // compute appearance cost
         if ( !transDown.empty() )
         {
-            resize(warpedImage, warpedImage, image1.size());
+            resize(warpedImage, warpedImage, image1.size(), 0, 0, INTER_LINEAR_EXACT);
             Mat temp=(warpedImage-image1);
             multiply(temp, temp, diffIm);
         }
         else
         {
-            resize(warpedImage, warpedImage, image2.size());
+            resize(warpedImage, warpedImage, image2.size(), 0, 0, INTER_LINEAR_EXACT);
             Mat temp=(warpedImage-image2);
             multiply(temp, temp, diffIm);
         }
@@ -492,6 +502,8 @@ void SCDMatcher::matchDescriptors(cv::Mat &descriptors1, cv::Mat &descriptors2, 
 void SCDMatcher::buildCostMatrix(const cv::Mat &descriptors1, const cv::Mat &descriptors2,
                                  cv::Mat &costMatrix, cv::Ptr<cv::HistogramCostExtractor> &comparer) const
 {
+    CV_INSTRUMENT_REGION()
+
     comparer->buildCostMatrix(descriptors1, descriptors2, costMatrix);
 }
 
@@ -762,7 +774,7 @@ void SCDMatcher::hungarian(cv::Mat &costMatrix, std::vector<cv::DMatch> &outMatc
     inliers1.reserve(sizeScd1);
     for (size_t kc = 0; kc<inliers1.size(); kc++)
     {
-        if (rowsol[kc]<sizeScd1) // if a real match
+        if (rowsol[kc]<sizeScd2) // if a real match
             inliers1[kc]=1;
         else
             inliers1[kc]=0;
@@ -770,7 +782,7 @@ void SCDMatcher::hungarian(cv::Mat &costMatrix, std::vector<cv::DMatch> &outMatc
     inliers2.reserve(sizeScd2);
     for (size_t kc = 0; kc<inliers2.size(); kc++)
     {
-        if (colsol[kc]<sizeScd2) // if a real match
+        if (colsol[kc]<sizeScd1) // if a real match
             inliers2[kc]=1;
         else
             inliers2[kc]=0;

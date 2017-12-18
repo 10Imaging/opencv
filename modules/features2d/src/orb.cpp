@@ -957,6 +957,8 @@ void ORB_Impl::detectAndCompute( InputArray _image, InputArray _mask,
                                  std::vector<KeyPoint>& keypoints,
                                  OutputArray _descriptors, bool useProvidedKeypoints )
 {
+    CV_INSTRUMENT_REGION()
+
     CV_Assert(patchSize >= 2);
 
     bool do_keypoints = !useProvidedKeypoints;
@@ -968,9 +970,11 @@ void ORB_Impl::detectAndCompute( InputArray _image, InputArray _mask,
     //ROI handling
     const int HARRIS_BLOCK_SIZE = 9;
     int halfPatchSize = patchSize / 2;
-    int border = std::max(edgeThreshold, std::max(halfPatchSize, HARRIS_BLOCK_SIZE/2))+1;
+    // sqrt(2.0) is for handling patch rotation
+    int descPatchSize = cvCeil(halfPatchSize*sqrt(2.0));
+    int border = std::max(edgeThreshold, std::max(descPatchSize, HARRIS_BLOCK_SIZE/2))+1;
 
-    bool useOCL = ocl::useOpenCL();
+    bool useOCL = ocl::isOpenCLActivated() && OCL_FORCE_CHECK(_image.isUMat() || _descriptors.isUMat());
 
     Mat image = _image.getMat(), mask = _mask.getMat();
     if( image.type() != CV_8UC1 )
@@ -1056,10 +1060,10 @@ void ORB_Impl::detectAndCompute( InputArray _image, InputArray _mask,
         // Compute the resized image
         if( level != firstLevel )
         {
-            resize(prevImg, currImg, sz, 0, 0, INTER_LINEAR);
+            resize(prevImg, currImg, sz, 0, 0, INTER_LINEAR_EXACT);
             if( !mask.empty() )
             {
-                resize(prevMask, currMask, sz, 0, 0, INTER_LINEAR);
+                resize(prevMask, currMask, sz, 0, 0, INTER_LINEAR_EXACT);
                 if( level > firstLevel )
                     threshold(currMask, currMask, 254, 0, THRESH_TOZERO);
             }
@@ -1192,6 +1196,11 @@ Ptr<ORB> ORB::create(int nfeatures, float scaleFactor, int nlevels, int edgeThre
 {
     return makePtr<ORB_Impl>(nfeatures, scaleFactor, nlevels, edgeThreshold,
                              firstLevel, wta_k, scoreType, patchSize, fastThreshold);
+}
+
+String ORB::getDefaultName() const
+{
+    return (Feature2D::getDefaultName() + ".ORB");
 }
 
 }

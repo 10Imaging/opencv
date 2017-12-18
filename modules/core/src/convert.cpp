@@ -45,6 +45,10 @@
 
 #include "opencl_kernels_core.hpp"
 
+#include "convert.hpp"
+
+#include "opencv2/core/openvx/ovx_defs.hpp"
+
 #ifdef __APPLE__
 #undef CV_NEON
 #define CV_NEON 0
@@ -82,14 +86,77 @@ static MergeFunc getMergeFunc(int depth)
     return mergeTab[depth];
 }
 
+#ifdef HAVE_IPP
+
+namespace cv {
+static bool ipp_split(const Mat& src, Mat* mv, int channels)
+{
+#ifdef HAVE_IPP_IW
+    CV_INSTRUMENT_REGION_IPP()
+
+    if(channels != 3 && channels != 4)
+        return false;
+
+    if(src.dims <= 2)
+    {
+        IppiSize size       = ippiSize(src.size());
+        void    *dstPtrs[4] = {NULL};
+        size_t   dstStep    = mv[0].step;
+        for(int i = 0; i < channels; i++)
+        {
+            dstPtrs[i] = mv[i].ptr();
+            if(dstStep != mv[i].step)
+                return false;
+        }
+
+        return CV_INSTRUMENT_FUN_IPP(llwiCopySplit, src.ptr(), (int)src.step, dstPtrs, (int)dstStep, size, (int)src.elemSize1(), channels, 0) >= 0;
+    }
+    else
+    {
+        const Mat *arrays[5] = {NULL};
+        uchar     *ptrs[5]   = {NULL};
+        arrays[0] = &src;
+
+        for(int i = 1; i < channels; i++)
+        {
+            arrays[i] = &mv[i-1];
+        }
+
+        NAryMatIterator it(arrays, ptrs);
+        IppiSize size = { (int)it.size, 1 };
+
+        for( size_t i = 0; i < it.nplanes; i++, ++it )
+        {
+            if(CV_INSTRUMENT_FUN_IPP(llwiCopySplit, ptrs[0], 0, (void**)&ptrs[1], 0, size, (int)src.elemSize1(), channels, 0) < 0)
+                return false;
+        }
+        return true;
+    }
+#else
+    CV_UNUSED(src); CV_UNUSED(mv); CV_UNUSED(channels);
+    return false;
+#endif
+}
+}
+#endif
+
 void cv::split(const Mat& src, Mat* mv)
 {
+    CV_INSTRUMENT_REGION()
+
     int k, depth = src.depth(), cn = src.channels();
     if( cn == 1 )
     {
         src.copyTo(mv[0]);
         return;
     }
+
+    for( k = 0; k < cn; k++ )
+    {
+        mv[k].create(src.dims, src.size, depth);
+    }
+
+    CV_IPP_RUN_FAST(ipp_split(src, mv, cn));
 
     SplitFunc func = getSplitFunc(depth);
     CV_Assert( func != 0 );
@@ -103,7 +170,6 @@ void cv::split(const Mat& src, Mat* mv)
     arrays[0] = &src;
     for( k = 0; k < cn; k++ )
     {
-        mv[k].create(src.dims, src.size, depth);
         arrays[k+1] = &mv[k];
     }
 
@@ -176,6 +242,8 @@ static bool ocl_split( InputArray _m, OutputArrayOfArrays _mv )
 
 void cv::split(InputArray _m, OutputArrayOfArrays _mv)
 {
+    CV_INSTRUMENT_REGION()
+
     CV_OCL_RUN(_m.dims() <= 2 && _mv.isUMatVector(),
                ocl_split(_m, _mv))
 
@@ -199,8 +267,64 @@ void cv::split(InputArray _m, OutputArrayOfArrays _mv)
     split(m, &dst[0]);
 }
 
+#ifdef HAVE_IPP
+
+namespace cv {
+static bool ipp_merge(const Mat* mv, Mat& dst, int channels)
+{
+#ifdef HAVE_IPP_IW
+    CV_INSTRUMENT_REGION_IPP()
+
+    if(channels != 3 && channels != 4)
+        return false;
+
+    if(mv[0].dims <= 2)
+    {
+        IppiSize    size       = ippiSize(mv[0].size());
+        const void *srcPtrs[4] = {NULL};
+        size_t      srcStep    = mv[0].step;
+        for(int i = 0; i < channels; i++)
+        {
+            srcPtrs[i] = mv[i].ptr();
+            if(srcStep != mv[i].step)
+                return false;
+        }
+
+        return CV_INSTRUMENT_FUN_IPP(llwiCopyMerge, srcPtrs, (int)srcStep, dst.ptr(), (int)dst.step, size, (int)mv[0].elemSize1(), channels, 0) >= 0;
+    }
+    else
+    {
+        const Mat *arrays[5] = {NULL};
+        uchar     *ptrs[5]   = {NULL};
+        arrays[0] = &dst;
+
+        for(int i = 1; i < channels; i++)
+        {
+            arrays[i] = &mv[i-1];
+        }
+
+        NAryMatIterator it(arrays, ptrs);
+        IppiSize size = { (int)it.size, 1 };
+
+        for( size_t i = 0; i < it.nplanes; i++, ++it )
+        {
+            if(CV_INSTRUMENT_FUN_IPP(llwiCopyMerge, (const void**)&ptrs[1], 0, ptrs[0], 0, size, (int)mv[0].elemSize1(), channels, 0) < 0)
+                return false;
+        }
+        return true;
+    }
+#else
+    CV_UNUSED(dst); CV_UNUSED(mv); CV_UNUSED(channels);
+    return false;
+#endif
+}
+}
+#endif
+
 void cv::merge(const Mat* mv, size_t n, OutputArray _dst)
 {
+    CV_INSTRUMENT_REGION()
+
     CV_Assert( mv && n > 0 );
 
     int depth = mv[0].depth();
@@ -224,6 +348,8 @@ void cv::merge(const Mat* mv, size_t n, OutputArray _dst)
         mv[0].copyTo(dst);
         return;
     }
+
+    CV_IPP_RUN_FAST(ipp_merge(mv, dst, (int)n));
 
     if( !allch1 )
     {
@@ -345,6 +471,8 @@ static bool ocl_merge( InputArrayOfArrays _mv, OutputArray _dst )
 
 void cv::merge(InputArrayOfArrays _mv, OutputArray _dst)
 {
+    CV_INSTRUMENT_REGION()
+
     CV_OCL_RUN(_mv.isUMatVector() && _dst.isUMat(),
                ocl_merge(_mv, _dst))
 
@@ -439,6 +567,8 @@ static MixChannelsFunc getMixchFunc(int depth)
 
 void cv::mixChannels( const Mat* src, size_t nsrcs, Mat* dst, size_t ndsts, const int* fromTo, size_t npairs )
 {
+    CV_INSTRUMENT_REGION()
+
     if( npairs == 0 )
         return;
     CV_Assert( src && nsrcs > 0 && dst && ndsts > 0 && fromTo && npairs > 0 );
@@ -615,6 +745,8 @@ static bool ocl_mixChannels(InputArrayOfArrays _src, InputOutputArrayOfArrays _d
 void cv::mixChannels(InputArrayOfArrays src, InputOutputArrayOfArrays dst,
                  const int* fromTo, size_t npairs)
 {
+    CV_INSTRUMENT_REGION()
+
     if (npairs == 0 || fromTo == NULL)
         return;
 
@@ -622,9 +754,11 @@ void cv::mixChannels(InputArrayOfArrays src, InputOutputArrayOfArrays dst,
                ocl_mixChannels(src, dst, fromTo, npairs))
 
     bool src_is_mat = src.kind() != _InputArray::STD_VECTOR_MAT &&
+            src.kind() != _InputArray::STD_ARRAY_MAT &&
             src.kind() != _InputArray::STD_VECTOR_VECTOR &&
             src.kind() != _InputArray::STD_VECTOR_UMAT;
     bool dst_is_mat = dst.kind() != _InputArray::STD_VECTOR_MAT &&
+            dst.kind() != _InputArray::STD_ARRAY_MAT &&
             dst.kind() != _InputArray::STD_VECTOR_VECTOR &&
             dst.kind() != _InputArray::STD_VECTOR_UMAT;
     int i;
@@ -644,6 +778,8 @@ void cv::mixChannels(InputArrayOfArrays src, InputOutputArrayOfArrays dst,
 void cv::mixChannels(InputArrayOfArrays src, InputOutputArrayOfArrays dst,
                      const std::vector<int>& fromTo)
 {
+    CV_INSTRUMENT_REGION()
+
     if (fromTo.empty())
         return;
 
@@ -651,9 +787,11 @@ void cv::mixChannels(InputArrayOfArrays src, InputOutputArrayOfArrays dst,
                ocl_mixChannels(src, dst, &fromTo[0], fromTo.size()>>1))
 
     bool src_is_mat = src.kind() != _InputArray::STD_VECTOR_MAT &&
+            src.kind() != _InputArray::STD_ARRAY_MAT &&
             src.kind() != _InputArray::STD_VECTOR_VECTOR &&
             src.kind() != _InputArray::STD_VECTOR_UMAT;
     bool dst_is_mat = dst.kind() != _InputArray::STD_VECTOR_MAT &&
+            dst.kind() != _InputArray::STD_ARRAY_MAT &&
             dst.kind() != _InputArray::STD_VECTOR_VECTOR &&
             dst.kind() != _InputArray::STD_VECTOR_UMAT;
     int i;
@@ -670,13 +808,98 @@ void cv::mixChannels(InputArrayOfArrays src, InputOutputArrayOfArrays dst,
     mixChannels(&buf[0], nsrc, &buf[nsrc], ndst, &fromTo[0], fromTo.size()/2);
 }
 
+#ifdef HAVE_IPP
+
+namespace cv
+{
+static bool ipp_extractChannel(const Mat &src, Mat &dst, int channel)
+{
+#ifdef HAVE_IPP_IW
+    CV_INSTRUMENT_REGION_IPP()
+
+    int srcChannels = src.channels();
+    int dstChannels = dst.channels();
+
+    if(src.dims != dst.dims)
+        return false;
+
+    if(src.dims <= 2)
+    {
+        IppiSize size = ippiSize(src.size());
+
+        return CV_INSTRUMENT_FUN_IPP(llwiCopyChannel, src.ptr(), (int)src.step, srcChannels, channel, dst.ptr(), (int)dst.step, dstChannels, 0, size, (int)src.elemSize1()) >= 0;
+    }
+    else
+    {
+        const Mat      *arrays[] = {&dst, NULL};
+        uchar          *ptrs[2]  = {NULL};
+        NAryMatIterator it(arrays, ptrs);
+
+        IppiSize size = {(int)it.size, 1};
+
+        for( size_t i = 0; i < it.nplanes; i++, ++it )
+        {
+            if(CV_INSTRUMENT_FUN_IPP(llwiCopyChannel, ptrs[0], 0, srcChannels, channel, ptrs[1], 0, dstChannels, 0, size, (int)src.elemSize1()) < 0)
+                return false;
+        }
+        return true;
+    }
+#else
+    CV_UNUSED(src); CV_UNUSED(dst); CV_UNUSED(channel);
+    return false;
+#endif
+}
+
+static bool ipp_insertChannel(const Mat &src, Mat &dst, int channel)
+{
+#ifdef HAVE_IPP_IW
+    CV_INSTRUMENT_REGION_IPP()
+
+    int srcChannels = src.channels();
+    int dstChannels = dst.channels();
+
+    if(src.dims != dst.dims)
+        return false;
+
+    if(src.dims <= 2)
+    {
+        IppiSize size = ippiSize(src.size());
+
+        return CV_INSTRUMENT_FUN_IPP(llwiCopyChannel, src.ptr(), (int)src.step, srcChannels, 0, dst.ptr(), (int)dst.step, dstChannels, channel, size, (int)src.elemSize1()) >= 0;
+    }
+    else
+    {
+        const Mat      *arrays[] = {&dst, NULL};
+        uchar          *ptrs[2]  = {NULL};
+        NAryMatIterator it(arrays, ptrs);
+
+        IppiSize size = {(int)it.size, 1};
+
+        for( size_t i = 0; i < it.nplanes; i++, ++it )
+        {
+            if(CV_INSTRUMENT_FUN_IPP(llwiCopyChannel, ptrs[0], 0, srcChannels, 0, ptrs[1], 0, dstChannels, channel, size, (int)src.elemSize1()) < 0)
+                return false;
+        }
+        return true;
+    }
+#else
+    CV_UNUSED(src); CV_UNUSED(dst); CV_UNUSED(channel);
+    return false;
+#endif
+}
+}
+#endif
+
 void cv::extractChannel(InputArray _src, OutputArray _dst, int coi)
 {
+    CV_INSTRUMENT_REGION()
+
     int type = _src.type(), depth = CV_MAT_DEPTH(type), cn = CV_MAT_CN(type);
     CV_Assert( 0 <= coi && coi < cn );
     int ch[] = { coi, 0 };
 
-    if (ocl::useOpenCL() && _src.dims() <= 2 && _dst.isUMat())
+#ifdef HAVE_OPENCL
+    if (ocl::isOpenCLActivated() && _src.dims() <= 2 && _dst.isUMat())
     {
         UMat src = _src.getUMat();
         _dst.create(src.dims, &src.size[0], depth);
@@ -684,29 +907,40 @@ void cv::extractChannel(InputArray _src, OutputArray _dst, int coi)
         mixChannels(std::vector<UMat>(1, src), std::vector<UMat>(1, dst), ch, 1);
         return;
     }
+#endif
 
     Mat src = _src.getMat();
     _dst.create(src.dims, &src.size[0], depth);
     Mat dst = _dst.getMat();
+
+    CV_IPP_RUN_FAST(ipp_extractChannel(src, dst, coi))
+
     mixChannels(&src, 1, &dst, 1, ch, 1);
 }
 
 void cv::insertChannel(InputArray _src, InputOutputArray _dst, int coi)
 {
+    CV_INSTRUMENT_REGION()
+
     int stype = _src.type(), sdepth = CV_MAT_DEPTH(stype), scn = CV_MAT_CN(stype);
     int dtype = _dst.type(), ddepth = CV_MAT_DEPTH(dtype), dcn = CV_MAT_CN(dtype);
     CV_Assert( _src.sameSize(_dst) && sdepth == ddepth );
     CV_Assert( 0 <= coi && coi < dcn && scn == 1 );
 
     int ch[] = { 0, coi };
-    if (ocl::useOpenCL() && _src.dims() <= 2 && _dst.isUMat())
+#ifdef HAVE_OPENCL
+    if (ocl::isOpenCLActivated() && _src.dims() <= 2 && _dst.isUMat())
     {
         UMat src = _src.getUMat(), dst = _dst.getUMat();
         mixChannels(std::vector<UMat>(1, src), std::vector<UMat>(1, dst), ch, 1);
         return;
     }
+#endif
 
     Mat src = _src.getMat(), dst = _dst.getMat();
+
+    CV_IPP_RUN_FAST(ipp_insertChannel(src, dst, coi))
+
     mixChannels(&src, 1, &dst, 1, ch, 1);
 }
 
@@ -726,41 +960,77 @@ struct cvtScaleAbs_SIMD
     }
 };
 
-#if CV_SSE2
+#if CV_SIMD128
+
+static inline void v_load_expand_from_u8_f32(const uchar* src, const v_float32x4 &v_scale, const v_float32x4 &v_shift, v_float32x4 &a, v_float32x4 &b)
+{
+    v_uint32x4 v_src0, v_src1;
+    v_expand(v_load_expand(src), v_src0, v_src1);
+
+    a = v_shift + v_scale * v_cvt_f32(v_reinterpret_as_s32(v_src0));
+    b = v_shift + v_scale * v_cvt_f32(v_reinterpret_as_s32(v_src1));
+}
+
+static inline void v_load_expand_from_s8_f32(const schar* src, const v_float32x4 &v_scale, const v_float32x4 &v_shift, v_float32x4 &a, v_float32x4 &b)
+{
+    v_int32x4 v_src0, v_src1;
+    v_expand(v_load_expand(src), v_src0, v_src1);
+
+    a = v_shift + v_scale * v_cvt_f32(v_src0);
+    b = v_shift + v_scale * v_cvt_f32(v_src1);
+}
+
+static inline void v_load_expand_from_u16_f32(const ushort* src, const v_float32x4 &v_scale, const v_float32x4 &v_shift, v_float32x4 &a, v_float32x4 &b)
+{
+    v_uint32x4 v_src0, v_src1;
+    v_expand(v_load(src), v_src0, v_src1);
+
+    a = v_shift + v_scale * v_cvt_f32(v_reinterpret_as_s32(v_src0));
+    b = v_shift + v_scale * v_cvt_f32(v_reinterpret_as_s32(v_src1));
+}
+
+static inline void v_load_expand_from_s16_f32(const short* src, const v_float32x4 &v_scale, const v_float32x4 &v_shift, v_float32x4 &a, v_float32x4 &b)
+{
+    v_int32x4 v_src0, v_src1;
+    v_expand(v_load(src), v_src0, v_src1);
+
+    a = v_shift + v_scale * v_cvt_f32(v_src0);
+    b = v_shift + v_scale * v_cvt_f32(v_src1);
+}
+
+static inline void v_load_expand_from_s32_f32(const int* src, const v_float32x4 &v_scale, const v_float32x4 &v_shift, v_float32x4 &a, v_float32x4 &b)
+{
+    a = v_shift + v_scale * v_cvt_f32(v_load(src));
+    b = v_shift + v_scale * v_cvt_f32(v_load(src + v_int32x4::nlanes));
+}
 
 template <>
 struct cvtScaleAbs_SIMD<uchar, uchar, float>
 {
     int operator () (const uchar * src, uchar * dst, int width,
-                     float scale, float shift) const
+        float scale, float shift) const
     {
         int x = 0;
-
-        if (USE_SSE2)
+        if (hasSIMD128())
         {
-            __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift),
-                v_zero_f = _mm_setzero_ps();
-            __m128i v_zero_i = _mm_setzero_si128();
-
-            for ( ; x <= width - 16; x += 16)
+            v_float32x4 v_shift = v_setall_f32(shift);
+            v_float32x4 v_scale = v_setall_f32(scale);
+            const int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
             {
-                __m128i v_src = _mm_loadu_si128((const __m128i *)(src + x));
-                __m128i v_src12 = _mm_unpacklo_epi8(v_src, v_zero_i), v_src_34 = _mm_unpackhi_epi8(v_src, v_zero_i);
-                __m128 v_dst1 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src12, v_zero_i)), v_scale), v_shift);
-                v_dst1 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst1), v_dst1);
-                __m128 v_dst2 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src12, v_zero_i)), v_scale), v_shift);
-                v_dst2 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst2), v_dst2);
-                __m128 v_dst3 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src_34, v_zero_i)), v_scale), v_shift);
-                v_dst3 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst3), v_dst3);
-                __m128 v_dst4 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src_34, v_zero_i)), v_scale), v_shift);
-                v_dst4 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst4), v_dst4);
+                v_float32x4 v_dst_0, v_dst_1, v_dst_2, v_dst_3;
+                v_load_expand_from_u8_f32(src + x, v_scale, v_shift, v_dst_0, v_dst_1);
+                v_load_expand_from_u8_f32(src + x + cWidth, v_scale, v_shift, v_dst_2, v_dst_3);
+                v_dst_0 = v_abs(v_dst_0);
+                v_dst_1 = v_abs(v_dst_1);
+                v_dst_2 = v_abs(v_dst_2);
+                v_dst_3 = v_abs(v_dst_3);
 
-                __m128i v_dst_i = _mm_packus_epi16(_mm_packs_epi32(_mm_cvtps_epi32(v_dst1), _mm_cvtps_epi32(v_dst2)),
-                                                   _mm_packs_epi32(_mm_cvtps_epi32(v_dst3), _mm_cvtps_epi32(v_dst4)));
-                _mm_storeu_si128((__m128i *)(dst + x), v_dst_i);
+                v_int16x8 v_dsti_0 = v_pack(v_round(v_dst_0), v_round(v_dst_1));
+                v_int16x8 v_dsti_1 = v_pack(v_round(v_dst_2), v_round(v_dst_3));
+                v_store(dst + x, v_pack_u(v_dsti_0, v_dsti_1));
             }
         }
-
         return x;
     }
 };
@@ -769,40 +1039,29 @@ template <>
 struct cvtScaleAbs_SIMD<schar, uchar, float>
 {
     int operator () (const schar * src, uchar * dst, int width,
-                     float scale, float shift) const
+        float scale, float shift) const
     {
         int x = 0;
-
-        if (USE_SSE2)
+        if (hasSIMD128())
         {
-            __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift),
-                v_zero_f = _mm_setzero_ps();
-            __m128i v_zero_i = _mm_setzero_si128();
-
-            for ( ; x <= width - 16; x += 16)
+            v_float32x4 v_shift = v_setall_f32(shift);
+            v_float32x4 v_scale = v_setall_f32(scale);
+            const int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth*2; x += cWidth*2)
             {
-                __m128i v_src = _mm_loadu_si128((const __m128i *)(src + x));
-                __m128i v_src_12 = _mm_srai_epi16(_mm_unpacklo_epi8(v_zero_i, v_src), 8),
-                        v_src_34 = _mm_srai_epi16(_mm_unpackhi_epi8(v_zero_i, v_src), 8);
-                __m128 v_dst1 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(
-                    _mm_srai_epi32(_mm_unpacklo_epi16(v_zero_i, v_src_12), 16)), v_scale), v_shift);
-                v_dst1 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst1), v_dst1);
-                __m128 v_dst2 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(
-                    _mm_srai_epi32(_mm_unpackhi_epi16(v_zero_i, v_src_12), 16)), v_scale), v_shift);
-                v_dst2 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst2), v_dst2);
-                __m128 v_dst3 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(
-                    _mm_srai_epi32(_mm_unpacklo_epi16(v_zero_i, v_src_34), 16)), v_scale), v_shift);
-                v_dst3 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst3), v_dst3);
-                __m128 v_dst4 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(
-                    _mm_srai_epi32(_mm_unpackhi_epi16(v_zero_i, v_src_34), 16)), v_scale), v_shift);
-                v_dst4 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst4), v_dst4);
+                v_float32x4 v_dst_0, v_dst_1, v_dst_2, v_dst_3;
+                v_load_expand_from_s8_f32(src + x, v_scale, v_shift, v_dst_0, v_dst_1);
+                v_load_expand_from_s8_f32(src + x + cWidth, v_scale, v_shift, v_dst_2, v_dst_3);
+                v_dst_0 = v_abs(v_dst_0);
+                v_dst_1 = v_abs(v_dst_1);
+                v_dst_2 = v_abs(v_dst_2);
+                v_dst_3 = v_abs(v_dst_3);
 
-                __m128i v_dst_i = _mm_packus_epi16(_mm_packs_epi32(_mm_cvtps_epi32(v_dst1), _mm_cvtps_epi32(v_dst2)),
-                                                   _mm_packs_epi32(_mm_cvtps_epi32(v_dst3), _mm_cvtps_epi32(v_dst4)));
-                _mm_storeu_si128((__m128i *)(dst + x), v_dst_i);
+                v_uint16x8 v_dsti_0 = v_pack_u(v_round(v_dst_0), v_round(v_dst_1));
+                v_uint16x8 v_dsti_1 = v_pack_u(v_round(v_dst_2), v_round(v_dst_3));
+                v_store(dst + x, v_pack(v_dsti_0, v_dsti_1));
             }
         }
-
         return x;
     }
 };
@@ -811,29 +1070,25 @@ template <>
 struct cvtScaleAbs_SIMD<ushort, uchar, float>
 {
     int operator () (const ushort * src, uchar * dst, int width,
-                     float scale, float shift) const
+        float scale, float shift) const
     {
         int x = 0;
-
-        if (USE_SSE2)
+        if (hasSIMD128())
         {
-            __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift),
-                v_zero_f = _mm_setzero_ps();
-            __m128i v_zero_i = _mm_setzero_si128();
-
-            for ( ; x <= width - 8; x += 8)
+            v_float32x4 v_shift = v_setall_f32(shift);
+            v_float32x4 v_scale = v_setall_f32(scale);
+            const int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
             {
-                __m128i v_src = _mm_loadu_si128((const __m128i *)(src + x));
-                __m128 v_dst1 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero_i)), v_scale), v_shift);
-                v_dst1 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst1), v_dst1);
-                __m128 v_dst2 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero_i)), v_scale), v_shift);
-                v_dst2 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst2), v_dst2);
+                v_float32x4 v_dst0, v_dst1;
+                v_load_expand_from_u16_f32(src + x, v_scale, v_shift, v_dst0, v_dst1);
+                v_dst0 = v_abs(v_dst0);
+                v_dst1 = v_abs(v_dst1);
 
-                __m128i v_dst_i = _mm_packus_epi16(_mm_packs_epi32(_mm_cvtps_epi32(v_dst1), _mm_cvtps_epi32(v_dst2)), v_zero_i);
-                _mm_storel_epi64((__m128i *)(dst + x), v_dst_i);
+                v_int16x8 v_dst = v_pack(v_round(v_dst0), v_round(v_dst1));
+                v_pack_u_store(dst + x, v_dst);
             }
         }
-
         return x;
     }
 };
@@ -842,29 +1097,25 @@ template <>
 struct cvtScaleAbs_SIMD<short, uchar, float>
 {
     int operator () (const short * src, uchar * dst, int width,
-                     float scale, float shift) const
+        float scale, float shift) const
     {
         int x = 0;
-
-        if (USE_SSE2)
+        if (hasSIMD128())
         {
-            __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift),
-                v_zero_f = _mm_setzero_ps();
-            __m128i v_zero_i = _mm_setzero_si128();
-
-            for ( ; x <= width - 8; x += 8)
+            v_float32x4 v_shift = v_setall_f32(shift);
+            v_float32x4 v_scale = v_setall_f32(scale);
+            const int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
             {
-                __m128i v_src = _mm_loadu_si128((const __m128i *)(src + x));
-                __m128 v_dst1 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_src, v_src), 16)), v_scale), v_shift);
-                v_dst1 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst1), v_dst1);
-                __m128 v_dst2 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_src, v_src), 16)), v_scale), v_shift);
-                v_dst2 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst2), v_dst2);
+                v_float32x4 v_dst0, v_dst1;
+                v_load_expand_from_s16_f32(src + x, v_scale, v_shift, v_dst0, v_dst1);
+                v_dst0 = v_abs(v_dst0);
+                v_dst1 = v_abs(v_dst1);
 
-                __m128i v_dst_i = _mm_packus_epi16(_mm_packs_epi32(_mm_cvtps_epi32(v_dst1), _mm_cvtps_epi32(v_dst2)), v_zero_i);
-                _mm_storel_epi64((__m128i *)(dst + x), v_dst_i);
+                v_int16x8 v_dst = v_pack(v_round(v_dst0), v_round(v_dst1));
+                v_pack_u_store(dst + x, v_dst);
             }
         }
-
         return x;
     }
 };
@@ -873,25 +1124,22 @@ template <>
 struct cvtScaleAbs_SIMD<int, uchar, float>
 {
     int operator () (const int * src, uchar * dst, int width,
-                     float scale, float shift) const
+        float scale, float shift) const
     {
         int x = 0;
-
-        if (USE_SSE2)
+        v_float32x4 v_shift = v_setall_f32(shift);
+        v_float32x4 v_scale = v_setall_f32(scale);
+        const int cWidth = v_int32x4::nlanes;
+        for (; x <= width - cWidth * 2; x += cWidth * 2)
         {
-            __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift),
-                v_zero_f = _mm_setzero_ps();
-            __m128i v_zero_i = _mm_setzero_si128();
+            v_float32x4 v_dst_0 = v_cvt_f32(v_load(src + x)) * v_scale;
+            v_dst_0 = v_abs(v_dst_0 + v_shift);
 
-            for ( ; x <= width - 8; x += 4)
-            {
-                __m128i v_src = _mm_loadu_si128((const __m128i *)(src + x));
-                __m128 v_dst1 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(v_src), v_scale), v_shift);
-                v_dst1 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst1), v_dst1);
+            v_float32x4 v_dst_1 = v_cvt_f32(v_load(src + x + cWidth)) * v_scale;
+            v_dst_1 = v_abs(v_dst_1 + v_shift);
 
-                __m128i v_dst_i = _mm_packus_epi16(_mm_packs_epi32(_mm_cvtps_epi32(v_dst1), v_zero_i), v_zero_i);
-                _mm_storel_epi64((__m128i *)(dst + x), v_dst_i);
-            }
+            v_int16x8 v_dst = v_pack(v_round(v_dst_0), v_round(v_dst_1));
+            v_pack_u_store(dst + x, v_dst);
         }
 
         return x;
@@ -902,273 +1150,59 @@ template <>
 struct cvtScaleAbs_SIMD<float, uchar, float>
 {
     int operator () (const float * src, uchar * dst, int width,
-                     float scale, float shift) const
+        float scale, float shift) const
     {
         int x = 0;
-
-        if (USE_SSE2)
+        v_float32x4 v_shift = v_setall_f32(shift);
+        v_float32x4 v_scale = v_setall_f32(scale);
+        int cWidth = v_float32x4::nlanes;
+        for (; x <= width - cWidth * 2; x += cWidth * 2)
         {
-            __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift),
-                v_zero_f = _mm_setzero_ps();
-            __m128i v_zero_i = _mm_setzero_si128();
+            v_float32x4 v_dst_0 = v_load(src + x) * v_scale;
+            v_dst_0 = v_abs(v_dst_0 + v_shift);
 
-            for ( ; x <= width - 8; x += 4)
-            {
-                __m128 v_dst = _mm_add_ps(_mm_mul_ps(_mm_loadu_ps(src + x), v_scale), v_shift);
-                v_dst = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst), v_dst);
+            v_float32x4 v_dst_1 = v_load(src + x + cWidth) * v_scale;
+            v_dst_1 = v_abs(v_dst_1 + v_shift);
 
-                __m128i v_dst_i = _mm_packs_epi32(_mm_cvtps_epi32(v_dst), v_zero_i);
-                _mm_storel_epi64((__m128i *)(dst + x), _mm_packus_epi16(v_dst_i, v_zero_i));
-            }
+            v_int16x8 v_dst = v_pack(v_round(v_dst_0), v_round(v_dst_1));
+            v_pack_u_store(dst + x, v_dst);
         }
-
         return x;
     }
 };
 
+#if CV_SIMD128_64F
 template <>
 struct cvtScaleAbs_SIMD<double, uchar, float>
 {
     int operator () (const double * src, uchar * dst, int width,
-                     float scale, float shift) const
+        float scale, float shift) const
     {
         int x = 0;
 
-        if (USE_SSE2)
+        if (hasSIMD128())
         {
-            __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift),
-                v_zero_f = _mm_setzero_ps();
-            __m128i v_zero_i = _mm_setzero_si128();
-
-            for ( ; x <= width - 8; x += 8)
+            v_float32x4 v_scale = v_setall_f32(scale);
+            v_float32x4 v_shift = v_setall_f32(shift);
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
             {
-                __m128 v_src1 = _mm_movelh_ps(_mm_cvtpd_ps(_mm_loadu_pd(src + x)),
-                                              _mm_cvtpd_ps(_mm_loadu_pd(src + x + 2)));
-                __m128 v_src2 = _mm_movelh_ps(_mm_cvtpd_ps(_mm_loadu_pd(src + x + 4)),
-                                              _mm_cvtpd_ps(_mm_loadu_pd(src + x + 6)));
+                v_float32x4 v_src1, v_src2, v_dummy;
+                v_recombine(v_cvt_f32(v_load(src + x)), v_cvt_f32(v_load(src + x + cWidth)), v_src1, v_dummy);
+                v_recombine(v_cvt_f32(v_load(src + x + cWidth * 2)), v_cvt_f32(v_load(src + x + cWidth * 3)), v_src2, v_dummy);
 
-                __m128 v_dst1 = _mm_add_ps(_mm_mul_ps(v_src1, v_scale), v_shift);
-                v_dst1 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst1), v_dst1);
+                v_float32x4 v_dst1 = v_abs((v_src1 * v_scale) + v_shift);
+                v_float32x4 v_dst2 = v_abs((v_src2 * v_scale) + v_shift);
 
-                __m128 v_dst2 = _mm_add_ps(_mm_mul_ps(v_src2, v_scale), v_shift);
-                v_dst2 = _mm_max_ps(_mm_sub_ps(v_zero_f, v_dst2), v_dst2);
-
-                __m128i v_dst_i = _mm_packs_epi32(_mm_cvtps_epi32(v_dst1),
-                                                  _mm_cvtps_epi32(v_dst2));
-
-                _mm_storel_epi64((__m128i *)(dst + x), _mm_packus_epi16(v_dst_i, v_zero_i));
+                v_int16x8 v_dst_i = v_pack(v_round(v_dst1), v_round(v_dst2));
+                v_pack_u_store(dst + x, v_dst_i);
             }
         }
 
         return x;
     }
 };
-
-#elif CV_NEON
-
-template <>
-struct cvtScaleAbs_SIMD<uchar, uchar, float>
-{
-    int operator () (const uchar * src, uchar * dst, int width,
-                     float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift);
-
-        for ( ; x <= width - 16; x += 16)
-        {
-            uint8x16_t v_src = vld1q_u8(src + x);
-            uint16x8_t v_half = vmovl_u8(vget_low_u8(v_src));
-
-            uint32x4_t v_quat = vmovl_u16(vget_low_u16(v_half));
-            float32x4_t v_dst_0 = vmulq_n_f32(vcvtq_f32_u32(v_quat), scale);
-            v_dst_0 = vabsq_f32(vaddq_f32(v_dst_0, v_shift));
-
-            v_quat = vmovl_u16(vget_high_u16(v_half));
-            float32x4_t v_dst_1 = vmulq_n_f32(vcvtq_f32_u32(v_quat), scale);
-            v_dst_1 = vabsq_f32(vaddq_f32(v_dst_1, v_shift));
-
-            v_half = vmovl_u8(vget_high_u8(v_src));
-
-            v_quat = vmovl_u16(vget_low_u16(v_half));
-            float32x4_t v_dst_2 = vmulq_n_f32(vcvtq_f32_u32(v_quat), scale);
-            v_dst_2 = vabsq_f32(vaddq_f32(v_dst_2, v_shift));
-
-            v_quat = vmovl_u16(vget_high_u16(v_half));
-            float32x4_t v_dst_3 = vmulq_n_f32(vcvtq_f32_u32(v_quat), scale);
-            v_dst_3 = vabsq_f32(vaddq_f32(v_dst_3, v_shift));
-
-            uint16x8_t v_dsti_0 = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst_0)),
-                vqmovn_u32(cv_vrndq_u32_f32(v_dst_1)));
-            uint16x8_t v_dsti_1 = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst_2)),
-                vqmovn_u32(cv_vrndq_u32_f32(v_dst_3)));
-
-            vst1q_u8(dst + x, vcombine_u8(vqmovn_u16(v_dsti_0), vqmovn_u16(v_dsti_1)));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScaleAbs_SIMD<schar, uchar, float>
-{
-    int operator () (const schar * src, uchar * dst, int width,
-                     float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift);
-
-        for ( ; x <= width - 16; x += 16)
-        {
-            int8x16_t v_src = vld1q_s8(src + x);
-            int16x8_t v_half = vmovl_s8(vget_low_s8(v_src));
-
-            int32x4_t v_quat = vmovl_s16(vget_low_s16(v_half));
-            float32x4_t v_dst_0 = vmulq_n_f32(vcvtq_f32_s32(v_quat), scale);
-            v_dst_0 = vabsq_f32(vaddq_f32(v_dst_0, v_shift));
-
-            v_quat = vmovl_s16(vget_high_s16(v_half));
-            float32x4_t v_dst_1 = vmulq_n_f32(vcvtq_f32_s32(v_quat), scale);
-            v_dst_1 = vabsq_f32(vaddq_f32(v_dst_1, v_shift));
-
-            v_half = vmovl_s8(vget_high_s8(v_src));
-
-            v_quat = vmovl_s16(vget_low_s16(v_half));
-            float32x4_t v_dst_2 = vmulq_n_f32(vcvtq_f32_s32(v_quat), scale);
-            v_dst_2 = vabsq_f32(vaddq_f32(v_dst_2, v_shift));
-
-            v_quat = vmovl_s16(vget_high_s16(v_half));
-            float32x4_t v_dst_3 = vmulq_n_f32(vcvtq_f32_s32(v_quat), scale);
-            v_dst_3 = vabsq_f32(vaddq_f32(v_dst_3, v_shift));
-
-            uint16x8_t v_dsti_0 = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst_0)),
-                vqmovn_u32(cv_vrndq_u32_f32(v_dst_1)));
-            uint16x8_t v_dsti_1 = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst_2)),
-                vqmovn_u32(cv_vrndq_u32_f32(v_dst_3)));
-
-            vst1q_u8(dst + x, vcombine_u8(vqmovn_u16(v_dsti_0), vqmovn_u16(v_dsti_1)));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScaleAbs_SIMD<ushort, uchar, float>
-{
-    int operator () (const ushort * src, uchar * dst, int width,
-                     float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vld1q_u16(src + x);
-
-            uint32x4_t v_half = vmovl_u16(vget_low_u16(v_src));
-            float32x4_t v_dst_0 = vmulq_n_f32(vcvtq_f32_u32(v_half), scale);
-            v_dst_0 = vabsq_f32(vaddq_f32(v_dst_0, v_shift));
-
-            v_half = vmovl_u16(vget_high_u16(v_src));
-            float32x4_t v_dst_1 = vmulq_n_f32(vcvtq_f32_u32(v_half), scale);
-            v_dst_1 = vabsq_f32(vaddq_f32(v_dst_1, v_shift));
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst_0)),
-                vqmovn_u32(cv_vrndq_u32_f32(v_dst_1)));
-
-            vst1_u8(dst + x, vqmovn_u16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScaleAbs_SIMD<short, uchar, float>
-{
-    int operator () (const short * src, uchar * dst, int width,
-                     float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            int16x8_t v_src = vld1q_s16(src + x);
-
-            int32x4_t v_half = vmovl_s16(vget_low_s16(v_src));
-            float32x4_t v_dst_0 = vmulq_n_f32(vcvtq_f32_s32(v_half), scale);
-            v_dst_0 = vabsq_f32(vaddq_f32(v_dst_0, v_shift));
-
-            v_half = vmovl_s16(vget_high_s16(v_src));
-            float32x4_t v_dst_1 = vmulq_n_f32(vcvtq_f32_s32(v_half), scale);
-            v_dst_1 = vabsq_f32(vaddq_f32(v_dst_1, v_shift));
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst_0)),
-                vqmovn_u32(cv_vrndq_u32_f32(v_dst_1)));
-
-            vst1_u8(dst + x, vqmovn_u16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScaleAbs_SIMD<int, uchar, float>
-{
-    int operator () (const int * src, uchar * dst, int width,
-                     float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            float32x4_t v_dst_0 = vmulq_n_f32(vcvtq_f32_s32(vld1q_s32(src + x)), scale);
-            v_dst_0 = vabsq_f32(vaddq_f32(v_dst_0, v_shift));
-            uint16x4_t v_dsti_0 = vqmovn_u32(cv_vrndq_u32_f32(v_dst_0));
-
-            float32x4_t v_dst_1 = vmulq_n_f32(vcvtq_f32_s32(vld1q_s32(src + x + 4)), scale);
-            v_dst_1 = vabsq_f32(vaddq_f32(v_dst_1, v_shift));
-            uint16x4_t v_dsti_1 = vqmovn_u32(cv_vrndq_u32_f32(v_dst_1));
-
-            uint16x8_t v_dst = vcombine_u16(v_dsti_0, v_dsti_1);
-            vst1_u8(dst + x, vqmovn_u16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScaleAbs_SIMD<float, uchar, float>
-{
-    int operator () (const float * src, uchar * dst, int width,
-                     float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            float32x4_t v_dst_0 = vmulq_n_f32(vld1q_f32(src + x), scale);
-            v_dst_0 = vabsq_f32(vaddq_f32(v_dst_0, v_shift));
-            uint16x4_t v_dsti_0 = vqmovn_u32(cv_vrndq_u32_f32(v_dst_0));
-
-            float32x4_t v_dst_1 = vmulq_n_f32(vld1q_f32(src + x + 4), scale);
-            v_dst_1 = vabsq_f32(vaddq_f32(v_dst_1, v_shift));
-            uint16x4_t v_dsti_1 = vqmovn_u32(cv_vrndq_u32_f32(v_dst_1));
-
-            uint16x8_t v_dst = vcombine_u16(v_dsti_0, v_dsti_1);
-            vst1_u8(dst + x, vqmovn_u16(v_dst));
-        }
-
-        return x;
-    }
-};
+#endif // CV_SIMD128_64F
 
 #endif
 
@@ -1211,7 +1245,7 @@ struct cvtScale_SIMD
     }
 };
 
-#if CV_SSE2
+#if CV_SIMD128
 
 // from uchar
 
@@ -1221,27 +1255,19 @@ struct cvtScale_SIMD<uchar, uchar, float>
     int operator () (const uchar * src, uchar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i const *)(src + x)), v_zero);
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_u8_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packus_epi16(v_dst, v_zero));
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_pack_u_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
@@ -1252,72 +1278,49 @@ struct cvtScale_SIMD<uchar, schar, float>
     int operator () (const uchar * src, schar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i const *)(src + x)), v_zero);
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_u8_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packs_epi16(v_dst, v_zero));
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_store_low(dst + x, v_pack(v_dst, v_dst));
+            }
         }
-
         return x;
     }
 };
-
-#if CV_SSE4_1
 
 template <>
 struct cvtScale_SIMD<uchar, ushort, float>
 {
-    cvtScale_SIMD()
-    {
-        haveSSE = checkHardwareSupport(CV_CPU_SSE4_1);
-    }
-
     int operator () (const uchar * src, ushort * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!haveSSE)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+#if CV_TRY_SSE4_1
+        if (CV_CPU_HAS_SUPPORT_SSE4_1)
+            return opt_SSE4_1::cvtScale_SIMD_u8u16f32_SSE41(src, dst, width, scale, shift);
+#endif
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i const *)(src + x)), v_zero);
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_u8_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packus_epi32(_mm_cvtps_epi32(v_dst_0),
-                                             _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+                v_uint16x8 v_dst = v_pack_u(v_round(v_src1), v_round(v_src2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
-
-    bool haveSSE;
 };
-
-#endif
 
 template <>
 struct cvtScale_SIMD<uchar, short, float>
@@ -1325,27 +1328,19 @@ struct cvtScale_SIMD<uchar, short, float>
     int operator () (const uchar * src, short * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i const *)(src + x)), v_zero);
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_u8_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
@@ -1356,26 +1351,19 @@ struct cvtScale_SIMD<uchar, int, float>
     int operator () (const uchar * src, int * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i const *)(src + x)), v_zero);
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_u8_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            _mm_storeu_si128((__m128i *)(dst + x), _mm_cvtps_epi32(v_dst_0));
-            _mm_storeu_si128((__m128i *)(dst + x + 4), _mm_cvtps_epi32(v_dst_1));
+                v_store(dst + x, v_round(v_src1));
+                v_store(dst + x + cWidth, v_round(v_src2));
+            }
         }
-
         return x;
     }
 };
@@ -1386,60 +1374,19 @@ struct cvtScale_SIMD<uchar, float, float>
     int operator () (const uchar * src, float * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i const *)(src + x)), v_zero);
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_u8_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            _mm_storeu_ps(dst + x, v_dst_0);
-            _mm_storeu_ps(dst + x + 4, v_dst_1);
+                v_store(dst + x, v_src1);
+                v_store(dst + x + cWidth, v_src2);
+            }
         }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<uchar, double, double>
-{
-    int operator () (const uchar * src, double * dst, int width, double scale, double shift) const
-    {
-        int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128d v_scale = _mm_set1_pd(scale), v_shift = _mm_set1_pd(shift);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            __m128i v_src = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i const *)(src + x)), v_zero);
-
-            __m128i v_src_s32 = _mm_unpacklo_epi16(v_src, v_zero);
-            __m128d v_dst_0 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src_s32), v_scale), v_shift);
-            __m128d v_dst_1 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(_mm_srli_si128(v_src_s32, 8)), v_scale), v_shift);
-            _mm_storeu_pd(dst + x, v_dst_0);
-            _mm_storeu_pd(dst + x + 2, v_dst_1);
-
-            v_src_s32 = _mm_unpackhi_epi16(v_src, v_zero);
-            v_dst_0 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src_s32), v_scale), v_shift);
-            v_dst_1 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(_mm_srli_si128(v_src_s32, 8)), v_scale), v_shift);
-            _mm_storeu_pd(dst + x + 4, v_dst_0);
-            _mm_storeu_pd(dst + x + 6, v_dst_1);
-        }
-
         return x;
     }
 };
@@ -1452,27 +1399,19 @@ struct cvtScale_SIMD<schar, uchar, float>
     int operator () (const schar * src, uchar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_srai_epi16(_mm_unpacklo_epi8(v_zero, _mm_loadl_epi64((__m128i const *)(src + x))), 8);
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s8_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packus_epi16(v_dst, v_zero));
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_pack_u_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
@@ -1483,72 +1422,49 @@ struct cvtScale_SIMD<schar, schar, float>
     int operator () (const schar * src, schar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_srai_epi16(_mm_unpacklo_epi8(v_zero, _mm_loadl_epi64((__m128i const *)(src + x))), 8);
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s8_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packs_epi16(v_dst, v_zero));
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_store_low(dst + x, v_pack(v_dst, v_dst));
+            }
         }
-
         return x;
     }
 };
-
-#if CV_SSE4_1
 
 template <>
 struct cvtScale_SIMD<schar, ushort, float>
 {
-    cvtScale_SIMD()
-    {
-        haveSSE = checkHardwareSupport(CV_CPU_SSE4_1);
-    }
-
     int operator () (const schar * src, ushort * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!haveSSE)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+#if CV_TRY_SSE4_1
+        if (CV_CPU_HAS_SUPPORT_SSE4_1)
+            return opt_SSE4_1::cvtScale_SIMD_s8u16f32_SSE41(src, dst, width, scale, shift);
+#endif
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_srai_epi16(_mm_unpacklo_epi8(v_zero, _mm_loadl_epi64((__m128i const *)(src + x))), 8);
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s8_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packus_epi32(_mm_cvtps_epi32(v_dst_0),
-                                             _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+                v_uint16x8 v_dst = v_pack_u(v_round(v_src1), v_round(v_src2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
-
-    bool haveSSE;
 };
-
-#endif
 
 template <>
 struct cvtScale_SIMD<schar, short, float>
@@ -1556,27 +1472,19 @@ struct cvtScale_SIMD<schar, short, float>
     int operator () (const schar * src, short * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_srai_epi16(_mm_unpacklo_epi8(v_zero, _mm_loadl_epi64((__m128i const *)(src + x))), 8);
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s8_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
@@ -1587,26 +1495,19 @@ struct cvtScale_SIMD<schar, int, float>
     int operator () (const schar * src, int * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_srai_epi16(_mm_unpacklo_epi8(v_zero, _mm_loadl_epi64((__m128i const *)(src + x))), 8);
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s8_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            _mm_storeu_si128((__m128i *)(dst + x), _mm_cvtps_epi32(v_dst_0));
-            _mm_storeu_si128((__m128i *)(dst + x + 4), _mm_cvtps_epi32(v_dst_1));
+                v_store(dst + x, v_round(v_src1));
+                v_store(dst + x + cWidth, v_round(v_src2));
+            }
         }
-
         return x;
     }
 };
@@ -1617,61 +1518,19 @@ struct cvtScale_SIMD<schar, float, float>
     int operator () (const schar * src, float * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_srai_epi16(_mm_unpacklo_epi8(v_zero, _mm_loadl_epi64((__m128i const *)(src + x))), 8);
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s8_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            _mm_storeu_ps(dst + x, v_dst_0);
-            _mm_storeu_ps(dst + x + 4, v_dst_1);
+                v_store(dst + x, v_src1);
+                v_store(dst + x + cWidth, v_src2);
+            }
         }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<schar, double, double>
-{
-    int operator () (const schar * src, double * dst, int width, double scale, double shift) const
-    {
-        int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128d v_scale = _mm_set1_pd(scale), v_shift = _mm_set1_pd(shift);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            __m128i v_src = _mm_unpacklo_epi8(v_zero, _mm_loadl_epi64((__m128i const *)(src + x)));
-            v_src = _mm_srai_epi16(v_src, 8);
-
-            __m128i v_src_s32 = _mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16);
-            __m128d v_dst_0 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src_s32), v_scale), v_shift);
-            __m128d v_dst_1 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(_mm_srli_si128(v_src_s32, 8)), v_scale), v_shift);
-            _mm_storeu_pd(dst + x, v_dst_0);
-            _mm_storeu_pd(dst + x + 2, v_dst_1);
-
-            v_src_s32 = _mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16);
-            v_dst_0 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src_s32), v_scale), v_shift);
-            v_dst_1 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(_mm_srli_si128(v_src_s32, 8)), v_scale), v_shift);
-            _mm_storeu_pd(dst + x + 4, v_dst_0);
-            _mm_storeu_pd(dst + x + 6, v_dst_1);
-        }
-
         return x;
     }
 };
@@ -1684,27 +1543,19 @@ struct cvtScale_SIMD<ushort, uchar, float>
     int operator () (const ushort * src, uchar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_u16_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packus_epi16(v_dst, v_zero));
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_pack_u_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
@@ -1715,72 +1566,49 @@ struct cvtScale_SIMD<ushort, schar, float>
     int operator () (const ushort * src, schar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_u16_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packs_epi16(v_dst, v_zero));
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_store_low(dst + x, v_pack(v_dst, v_dst));
+            }
         }
-
         return x;
     }
 };
-
-#if CV_SSE4_1
 
 template <>
 struct cvtScale_SIMD<ushort, ushort, float>
 {
-    cvtScale_SIMD()
-    {
-        haveSSE = checkHardwareSupport(CV_CPU_SSE4_1);
-    }
-
     int operator () (const ushort * src, ushort * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!haveSSE)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+#if CV_TRY_SSE4_1
+        if (CV_CPU_HAS_SUPPORT_SSE4_1)
+            return opt_SSE4_1::cvtScale_SIMD_u16u16f32_SSE41(src, dst, width, scale, shift);
+#endif
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_u16_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packus_epi32(_mm_cvtps_epi32(v_dst_0),
-                                             _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+                v_uint16x8 v_dst = v_pack_u(v_round(v_src1), v_round(v_src2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
-
-    bool haveSSE;
 };
-
-#endif
 
 template <>
 struct cvtScale_SIMD<ushort, short, float>
@@ -1788,27 +1616,19 @@ struct cvtScale_SIMD<ushort, short, float>
     int operator () (const ushort * src, short * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_u16_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
@@ -1819,26 +1639,19 @@ struct cvtScale_SIMD<ushort, int, float>
     int operator () (const ushort * src, int * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_u16_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            _mm_storeu_si128((__m128i *)(dst + x), _mm_cvtps_epi32(v_dst_0));
-            _mm_storeu_si128((__m128i *)(dst + x + 4), _mm_cvtps_epi32(v_dst_1));
+                v_store(dst + x, v_round(v_src1));
+                v_store(dst + x + cWidth, v_round(v_src2));
+            }
         }
-
         return x;
     }
 };
@@ -1849,60 +1662,19 @@ struct cvtScale_SIMD<ushort, float, float>
     int operator () (const ushort * src, float * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_unpacklo_epi16(v_src, v_zero));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_u16_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_unpackhi_epi16(v_src, v_zero));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            _mm_storeu_ps(dst + x, v_dst_0);
-            _mm_storeu_ps(dst + x + 4, v_dst_1);
+                v_store(dst + x, v_src1);
+                v_store(dst + x + cWidth, v_src2);
+            }
         }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<ushort, double, double>
-{
-    int operator () (const ushort * src, double * dst, int width, double scale, double shift) const
-    {
-        int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128d v_scale = _mm_set1_pd(scale), v_shift = _mm_set1_pd(shift);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-
-            __m128i v_src_s32 = _mm_unpacklo_epi16(v_src, v_zero);
-            __m128d v_dst_0 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src_s32), v_scale), v_shift);
-            __m128d v_dst_1 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(_mm_srli_si128(v_src_s32, 8)), v_scale), v_shift);
-            _mm_storeu_pd(dst + x, v_dst_0);
-            _mm_storeu_pd(dst + x + 2, v_dst_1);
-
-            v_src_s32 = _mm_unpackhi_epi16(v_src, v_zero);
-            v_dst_0 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src_s32), v_scale), v_shift);
-            v_dst_1 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(_mm_srli_si128(v_src_s32, 8)), v_scale), v_shift);
-            _mm_storeu_pd(dst + x + 4, v_dst_0);
-            _mm_storeu_pd(dst + x + 6, v_dst_1);
-        }
-
         return x;
     }
 };
@@ -1915,27 +1687,19 @@ struct cvtScale_SIMD<short, uchar, float>
     int operator () (const short * src, uchar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s16_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packus_epi16(v_dst, v_zero));
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_pack_u_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
@@ -1946,72 +1710,49 @@ struct cvtScale_SIMD<short, schar, float>
     int operator () (const short * src, schar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s16_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packs_epi16(v_dst, v_zero));
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_store_low(dst + x, v_pack(v_dst, v_dst));
+            }
         }
-
         return x;
     }
 };
-
-#if CV_SSE4_1
 
 template <>
 struct cvtScale_SIMD<short, ushort, float>
 {
-    cvtScale_SIMD()
-    {
-        haveSSE = checkHardwareSupport(CV_CPU_SSE4_1);
-    }
-
     int operator () (const short * src, ushort * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!haveSSE)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+#if CV_TRY_SSE4_1
+        if (CV_CPU_HAS_SUPPORT_SSE4_1)
+            return opt_SSE4_1::cvtScale_SIMD_s16u16f32_SSE41(src, dst, width, scale, shift);
+#endif
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s16_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packus_epi32(_mm_cvtps_epi32(v_dst_0),
-                                             _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+                v_uint16x8 v_dst = v_pack_u(v_round(v_src1), v_round(v_src2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
-
-    bool haveSSE;
 };
-
-#endif
 
 template <>
 struct cvtScale_SIMD<short, short, float>
@@ -2019,57 +1760,19 @@ struct cvtScale_SIMD<short, short, float>
     int operator () (const short * src, short * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s16_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_store(dst + x, v_dst);
+            }
         }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<short, int, float>
-{
-    int operator () (const short * src, int * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            _mm_storeu_si128((__m128i *)(dst + x), _mm_cvtps_epi32(v_dst_0));
-            _mm_storeu_si128((__m128i *)(dst + x + 4), _mm_cvtps_epi32(v_dst_1));
-        }
-
         return x;
     }
 };
@@ -2080,60 +1783,19 @@ struct cvtScale_SIMD<short, float, float>
     int operator () (const short * src, float * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s16_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src_f = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src_f, v_scale), v_shift);
-
-            _mm_storeu_ps(dst + x, v_dst_0);
-            _mm_storeu_ps(dst + x + 4, v_dst_1);
+                v_store(dst + x, v_src1);
+                v_store(dst + x + cWidth, v_src2);
+            }
         }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<short, double, double>
-{
-    int operator () (const short * src, double * dst, int width, double scale, double shift) const
-    {
-        int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128d v_scale = _mm_set1_pd(scale), v_shift = _mm_set1_pd(shift);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-
-            __m128i v_src_s32 = _mm_srai_epi32(_mm_unpacklo_epi16(v_zero, v_src), 16);
-            __m128d v_dst_0 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src_s32), v_scale), v_shift);
-            __m128d v_dst_1 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(_mm_srli_si128(v_src_s32, 8)), v_scale), v_shift);
-            _mm_storeu_pd(dst + x, v_dst_0);
-            _mm_storeu_pd(dst + x + 2, v_dst_1);
-
-            v_src_s32 = _mm_srai_epi32(_mm_unpackhi_epi16(v_zero, v_src), 16);
-            v_dst_0 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src_s32), v_scale), v_shift);
-            v_dst_1 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(_mm_srli_si128(v_src_s32, 8)), v_scale), v_shift);
-            _mm_storeu_pd(dst + x + 4, v_dst_0);
-            _mm_storeu_pd(dst + x + 6, v_dst_1);
-        }
-
         return x;
     }
 };
@@ -2146,26 +1808,19 @@ struct cvtScale_SIMD<int, uchar, float>
     int operator () (const int * src, uchar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(v_src), v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s32_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src = _mm_loadu_si128((__m128i const *)(src + x + 4));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(v_src), v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packus_epi16(v_dst, v_zero));
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_pack_u_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
@@ -2176,69 +1831,49 @@ struct cvtScale_SIMD<int, schar, float>
     int operator () (const int * src, schar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(v_src), v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s32_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src = _mm_loadu_si128((__m128i const *)(src + x + 4));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(v_src), v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packs_epi16(v_dst, v_zero));
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_store_low(dst + x, v_pack(v_dst, v_dst));
+            }
         }
-
         return x;
     }
 };
-
-#if CV_SSE4_1
 
 template <>
 struct cvtScale_SIMD<int, ushort, float>
 {
-    cvtScale_SIMD()
-    {
-        haveSSE = checkHardwareSupport(CV_CPU_SSE4_1);
-    }
-
     int operator () (const int * src, ushort * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!haveSSE)
-            return x;
-
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+#if CV_TRY_SSE4_1
+        if (CV_CPU_HAS_SUPPORT_SSE4_1)
+            return opt_SSE4_1::cvtScale_SIMD_s32u16f32_SSE41(src, dst, width, scale, shift);
+#endif
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(v_src), v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s32_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src = _mm_loadu_si128((__m128i const *)(src + x + 4));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(v_src), v_scale), v_shift);
-
-            __m128i v_dst = _mm_packus_epi32(_mm_cvtps_epi32(v_dst_0),
-                                             _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+                v_uint16x8 v_dst = v_pack_u(v_round(v_src1), v_round(v_src2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
-
-    bool haveSSE;
 };
-
-#endif
 
 template <>
 struct cvtScale_SIMD<int, short, float>
@@ -2246,55 +1881,42 @@ struct cvtScale_SIMD<int, short, float>
     int operator () (const int * src, short * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(v_src), v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_src1, v_src2;
+                v_load_expand_from_s32_f32(src + x, v_scale, v_shift, v_src1, v_src2);
 
-            v_src = _mm_loadu_si128((__m128i const *)(src + x + 4));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(v_src), v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+                v_int16x8 v_dst = v_pack(v_round(v_src1), v_round(v_src2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
 
+#if CV_SIMD128_64F
 template <>
 struct cvtScale_SIMD<int, int, double>
 {
     int operator () (const int * src, int * dst, int width, double scale, double shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128d v_scale = _mm_set1_pd(scale), v_shift = _mm_set1_pd(shift);
-
-        for ( ; x <= width - 4; x += 4)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128d v_dst_0 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src), v_scale), v_shift);
-
-            v_src = _mm_srli_si128(v_src, 8);
-            __m128d v_dst_1 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src), v_scale), v_shift);
-
-            __m128 v_dst = _mm_movelh_ps(_mm_castsi128_ps(_mm_cvtpd_epi32(v_dst_0)),
-                                         _mm_castsi128_ps(_mm_cvtpd_epi32(v_dst_1)));
-
-            _mm_storeu_si128((__m128i *)(dst + x), _mm_castps_si128(v_dst));
+            v_float64x2 v_shift = v_setall_f64(shift), v_scale = v_setall_f64(scale);
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                double v_srcbuf[] = { (double)src[x], (double)src[x+1], (double)src[x+2], (double)src[x+3] };
+                v_float64x2 v_src1 = v_shift + v_scale * v_load(v_srcbuf);
+                v_float64x2 v_src2 = v_shift + v_scale * v_load(v_srcbuf + 2);
+                v_store(dst + x, v_combine_low(v_round(v_src1), v_round(v_src2)));
+            }
         }
-
         return x;
     }
 };
@@ -2305,55 +1927,22 @@ struct cvtScale_SIMD<int, float, double>
     int operator () (const int * src, float * dst, int width, double scale, double shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128d v_scale = _mm_set1_pd(scale), v_shift = _mm_set1_pd(shift);
-
-        for ( ; x <= width - 4; x += 4)
+        if (hasSIMD128())
         {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128d v_dst_0 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src), v_scale), v_shift);
-
-            v_src = _mm_srli_si128(v_src, 8);
-            __m128d v_dst_1 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src), v_scale), v_shift);
-
-            _mm_storeu_ps(dst + x, _mm_movelh_ps(_mm_cvtpd_ps(v_dst_0),
-                                                 _mm_cvtpd_ps(v_dst_1)));
+            v_float64x2 v_shift = v_setall_f64(shift), v_scale = v_setall_f64(scale);
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                double v_srcbuf[] = { (double)src[x], (double)src[x+1], (double)src[x+2], (double)src[x+3] };
+                v_float64x2 v_src1 = v_shift + v_scale * v_load(v_srcbuf);
+                v_float64x2 v_src2 = v_shift + v_scale * v_load(v_srcbuf + 2);
+                v_store(dst + x, v_combine_low(v_cvt_f32(v_src1), v_cvt_f32(v_src2)));
+            }
         }
-
         return x;
     }
 };
-
-template <>
-struct cvtScale_SIMD<int, double, double>
-{
-    int operator () (const int * src, double * dst, int width, double scale, double shift) const
-    {
-        int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128d v_scale = _mm_set1_pd(scale), v_shift = _mm_set1_pd(shift);
-
-        for ( ; x <= width - 4; x += 4)
-        {
-            __m128i v_src = _mm_loadu_si128((__m128i const *)(src + x));
-            __m128d v_dst_0 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src), v_scale), v_shift);
-
-            v_src = _mm_srli_si128(v_src, 8);
-            __m128d v_dst_1 = _mm_add_pd(_mm_mul_pd(_mm_cvtepi32_pd(v_src), v_scale), v_shift);
-
-            _mm_storeu_pd(dst + x, v_dst_0);
-            _mm_storeu_pd(dst + x + 2, v_dst_1);
-        }
-
-        return x;
-    }
-};
+#endif //CV_SIMD128_64F
 
 // from float
 
@@ -2363,26 +1952,19 @@ struct cvtScale_SIMD<float, uchar, float>
     int operator () (const float * src, uchar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128 v_src = _mm_loadu_ps(src + x);
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_dst1 = v_shift + v_scale * v_load(src + x);
+                v_float32x4 v_dst2 = v_shift + v_scale * v_load(src + x + cWidth);
 
-            v_src = _mm_loadu_ps(src + x + 4);
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packus_epi16(v_dst, v_zero));
+                v_int16x8 v_dst = v_pack(v_round(v_dst1), v_round(v_dst2));
+                v_pack_u_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
@@ -2393,69 +1975,49 @@ struct cvtScale_SIMD<float, schar, float>
     int operator () (const float * src, schar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128 v_src = _mm_loadu_ps(src + x);
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_dst1 = v_shift + v_scale * v_load(src + x);
+                v_float32x4 v_dst2 = v_shift + v_scale * v_load(src + x + cWidth);
 
-            v_src = _mm_loadu_ps(src + x + 4);
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packs_epi16(v_dst, v_zero));
+                v_int16x8 v_dst = v_pack(v_round(v_dst1), v_round(v_dst2));
+                v_store_low(dst + x, v_pack(v_dst, v_dst));
+            }
         }
-
         return x;
     }
 };
-
-#if CV_SSE4_1
 
 template <>
 struct cvtScale_SIMD<float, ushort, float>
 {
-    cvtScale_SIMD()
-    {
-        haveSSE = checkHardwareSupport(CV_CPU_SSE4_1);
-    }
-
     int operator () (const float * src, ushort * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!haveSSE)
-            return x;
-
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+#if CV_TRY_SSE4_1
+        if (CV_CPU_HAS_SUPPORT_SSE4_1)
+            return opt_SSE4_1::cvtScale_SIMD_f32u16f32_SSE41(src, dst, width, scale, shift);
+#endif
+        if (hasSIMD128())
         {
-            __m128 v_src = _mm_loadu_ps(src + x);
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_dst1 = v_shift + v_scale * v_load(src + x);
+                v_float32x4 v_dst2 = v_shift + v_scale * v_load(src + x + cWidth);
 
-            v_src = _mm_loadu_ps(src + x + 4);
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packus_epi32(_mm_cvtps_epi32(v_dst_0),
-                                             _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+                v_uint16x8 v_dst = v_pack_u(v_round(v_dst1), v_round(v_dst2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
-
-    bool haveSSE;
 };
-
-#endif
 
 template <>
 struct cvtScale_SIMD<float, short, float>
@@ -2463,25 +2025,19 @@ struct cvtScale_SIMD<float, short, float>
     int operator () (const float * src, short * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128 v_src = _mm_loadu_ps(src + x);
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_dst1 = v_shift + v_scale * v_load(src + x);
+                v_float32x4 v_dst2 = v_shift + v_scale * v_load(src + x + cWidth);
 
-            v_src = _mm_loadu_ps(src + x + 4);
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+                v_int16x8 v_dst = v_pack(v_round(v_dst1), v_round(v_dst2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
@@ -2492,24 +2048,13 @@ struct cvtScale_SIMD<float, int, float>
     int operator () (const float * src, int * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128 v_src = _mm_loadu_ps(src + x);
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            v_src = _mm_loadu_ps(src + x + 4);
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            _mm_storeu_si128((__m128i *)(dst + x), _mm_cvtps_epi32(v_dst_0));
-            _mm_storeu_si128((__m128i *)(dst + x + 4), _mm_cvtps_epi32(v_dst_1));
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+                v_store(dst + x, v_round(v_load(src + x) * v_scale + v_shift));
         }
-
         return x;
     }
 };
@@ -2520,49 +2065,55 @@ struct cvtScale_SIMD<float, float, float>
     int operator () (const float * src, float * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 4; x += 4)
+        if (hasSIMD128())
         {
-            __m128 v_src = _mm_loadu_ps(src + x);
-            __m128 v_dst = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-            _mm_storeu_ps(dst + x, v_dst);
+            v_float32x4 v_shift = v_setall_f32(shift), v_scale = v_setall_f32(scale);
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+                v_store(dst + x, v_load(src + x) * v_scale + v_shift);
         }
-
         return x;
     }
 };
 
-template <>
-struct cvtScale_SIMD<float, double, double>
+#if CV_SIMD128_64F
+
+static inline void v_load_scale_shift(const double* src, const v_float64x2& v_scale, const v_float64x2 &v_shift, v_float32x4& v_dst1, v_float32x4 &v_dst2)
 {
-    int operator () (const float * src, double * dst, int width, double scale, double shift) const
-    {
-        int x = 0;
+    int cWidth = v_float64x2::nlanes;
+    v_float64x2 v_src1 = v_shift + v_scale * v_load(src);
+    v_float64x2 v_src2 = v_shift + v_scale * v_load(src + cWidth);
+    v_float64x2 v_src3 = v_shift + v_scale * v_load(src + cWidth * 2);
+    v_float64x2 v_src4 = v_shift + v_scale * v_load(src + cWidth * 3);
+    v_dst1 = v_combine_low(v_cvt_f32(v_src1), v_cvt_f32(v_src2));
+    v_dst2 = v_combine_low(v_cvt_f32(v_src3), v_cvt_f32(v_src4));
+}
 
-        if (!USE_SSE2)
-            return x;
+static inline void v_store_scale_shift_s32_to_f64(double *dst, const v_float64x2 &v_scale, const v_float64x2 &v_shift, const v_int32x4 &v1, const v_int32x4 &v2)
+{
+    v_float64x2 v_dst1 = v_shift + v_scale * v_cvt_f64(v1);
+    v_float64x2 v_dst2 = v_shift + v_scale * v_cvt_f64_high(v1);
+    v_float64x2 v_dst3 = v_shift + v_scale * v_cvt_f64(v2);
+    v_float64x2 v_dst4 = v_shift + v_scale * v_cvt_f64_high(v2);
 
-        __m128d v_scale = _mm_set1_pd(scale), v_shift = _mm_set1_pd(shift);
+    v_store(dst, v_dst1);
+    v_store(dst + v_float64x2::nlanes, v_dst2);
+    v_store(dst + v_float64x2::nlanes * 2, v_dst3);
+    v_store(dst + v_float64x2::nlanes * 3, v_dst4);
+}
 
-        for ( ; x <= width - 4; x += 4)
-        {
-            __m128 v_src = _mm_loadu_ps(src + x);
-            __m128d v_dst_0 = _mm_add_pd(_mm_mul_pd(_mm_cvtps_pd(v_src), v_scale), v_shift);
-            v_src = _mm_castsi128_ps(_mm_srli_si128(_mm_castps_si128(v_src), 8));
-            __m128d v_dst_1 = _mm_add_pd(_mm_mul_pd(_mm_cvtps_pd(v_src), v_scale), v_shift);
+static inline void v_store_scale_shift_f32_to_f64(double *dst, const v_float64x2 &v_scale, const v_float64x2 &v_shift, const v_float32x4 &v1, const v_float32x4 &v2)
+{
+    v_float64x2 v_dst1 = v_shift + v_scale * v_cvt_f64(v1);
+    v_float64x2 v_dst2 = v_shift + v_scale * v_cvt_f64_high(v1);
+    v_float64x2 v_dst3 = v_shift + v_scale * v_cvt_f64(v2);
+    v_float64x2 v_dst4 = v_shift + v_scale * v_cvt_f64_high(v2);
 
-            _mm_storeu_pd(dst + x, v_dst_0);
-            _mm_storeu_pd(dst + x + 2, v_dst_1);
-        }
-
-        return x;
-    }
-};
+    v_store(dst, v_dst1);
+    v_store(dst + v_float64x2::nlanes, v_dst2);
+    v_store(dst + v_float64x2::nlanes * 2, v_dst3);
+    v_store(dst + v_float64x2::nlanes * 3, v_dst4);
+}
 
 // from double
 
@@ -2572,28 +2123,17 @@ struct cvtScale_SIMD<double, uchar, float>
     int operator () (const double * src, uchar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128 v_src = _mm_movelh_ps(_mm_cvtpd_ps(_mm_loadu_pd(src + x)),
-                                         _mm_cvtpd_ps(_mm_loadu_pd(src + x + 2)));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            v_src = _mm_movelh_ps(_mm_cvtpd_ps(_mm_loadu_pd(src + x + 4)),
-                                  _mm_cvtpd_ps(_mm_loadu_pd(src + x + 6)));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packus_epi16(v_dst, v_zero));
+            v_float64x2 v_shift = v_setall_f64((double)shift), v_scale = v_setall_f64((double)scale);
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_float32x4 v_dst1, v_dst2;
+                v_load_scale_shift(src + x, v_scale, v_shift, v_dst1, v_dst2);
+                v_pack_u_store(dst + x, v_pack(v_round(v_dst1), v_round(v_dst2)));
+            }
         }
-
         return x;
     }
 };
@@ -2604,73 +2144,47 @@ struct cvtScale_SIMD<double, schar, float>
     int operator () (const double * src, schar * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128i v_zero = _mm_setzero_si128();
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128 v_src = _mm_movelh_ps(_mm_cvtpd_ps(_mm_loadu_pd(src + x)),
-                                         _mm_cvtpd_ps(_mm_loadu_pd(src + x + 2)));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            v_src = _mm_movelh_ps(_mm_cvtpd_ps(_mm_loadu_pd(src + x + 4)),
-                                  _mm_cvtpd_ps(_mm_loadu_pd(src + x + 6)));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packs_epi16(v_dst, v_zero));
+            v_float64x2 v_shift = v_setall_f64((double)shift), v_scale = v_setall_f64((double)scale);
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_float32x4 v_dst1, v_dst2;
+                v_load_scale_shift(src + x, v_scale, v_shift, v_dst1, v_dst2);
+                v_int16x8 v_dst = v_pack(v_round(v_dst1), v_round(v_dst2));
+                v_pack_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
-
-#if CV_SSE4_1
 
 template <>
 struct cvtScale_SIMD<double, ushort, float>
 {
-    cvtScale_SIMD()
-    {
-        haveSSE = checkHardwareSupport(CV_CPU_SSE4_1);
-    }
-
     int operator () (const double * src, ushort * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!haveSSE)
-            return x;
-
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+#if CV_TRY_SSE4_1
+        if (CV_CPU_HAS_SUPPORT_SSE4_1)
+            return opt_SSE4_1::cvtScale_SIMD_f64u16f32_SSE41(src, dst, width, scale, shift);
+#endif
+        if (hasSIMD128())
         {
-            __m128 v_src = _mm_movelh_ps(_mm_cvtpd_ps(_mm_loadu_pd(src + x)),
-                                         _mm_cvtpd_ps(_mm_loadu_pd(src + x + 2)));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            v_src = _mm_movelh_ps(_mm_cvtpd_ps(_mm_loadu_pd(src + x + 4)),
-                                  _mm_cvtpd_ps(_mm_loadu_pd(src + x + 6)));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packus_epi32(_mm_cvtps_epi32(v_dst_0),
-                                             _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+            v_float64x2 v_shift = v_setall_f64((double)shift), v_scale = v_setall_f64((double)scale);
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_dst1, v_dst2;
+                v_load_scale_shift(src + x, v_scale, v_shift, v_dst1, v_dst2);
+                v_uint16x8 v_dst = v_pack_u(v_round(v_dst1), v_round(v_dst2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
-
-    bool haveSSE;
 };
-
-#endif
 
 template <>
 struct cvtScale_SIMD<double, short, float>
@@ -2678,27 +2192,18 @@ struct cvtScale_SIMD<double, short, float>
     int operator () (const double * src, short * dst, int width, float scale, float shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128 v_scale = _mm_set1_ps(scale), v_shift = _mm_set1_ps(shift);
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            __m128 v_src = _mm_movelh_ps(_mm_cvtpd_ps(_mm_loadu_pd(src + x)),
-                                         _mm_cvtpd_ps(_mm_loadu_pd(src + x + 2)));
-            __m128 v_dst_0 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            v_src = _mm_movelh_ps(_mm_cvtpd_ps(_mm_loadu_pd(src + x + 4)),
-                                  _mm_cvtpd_ps(_mm_loadu_pd(src + x + 6)));
-            __m128 v_dst_1 = _mm_add_ps(_mm_mul_ps(v_src, v_scale), v_shift);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_dst_0),
-                                            _mm_cvtps_epi32(v_dst_1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
+            v_float64x2 v_shift = v_setall_f64((double)shift), v_scale = v_setall_f64((double)scale);
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_float32x4 v_dst1, v_dst2;
+                v_load_scale_shift(src + x, v_scale, v_shift, v_dst1, v_dst2);
+                v_int16x8 v_dst = v_pack(v_round(v_dst1), v_round(v_dst2));
+                v_store(dst + x, v_dst);
+            }
         }
-
         return x;
     }
 };
@@ -2709,26 +2214,18 @@ struct cvtScale_SIMD<double, int, double>
     int operator () (const double * src, int * dst, int width, double scale, double shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128d v_scale = _mm_set1_pd(scale), v_shift = _mm_set1_pd(shift);
-
-        for ( ; x <= width - 4; x += 4)
+        if (hasSIMD128())
         {
-            __m128d v_src = _mm_loadu_pd(src + x);
-            __m128d v_dst0 = _mm_add_pd(_mm_mul_pd(v_src, v_scale), v_shift);
+            v_float64x2 v_shift = v_setall_f64(shift), v_scale = v_setall_f64(scale);
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float64x2 v_src1 = v_shift + v_scale * v_load(src + x);
+                v_float64x2 v_src2 = v_shift + v_scale * v_load(src + x + cWidth);
 
-            v_src = _mm_loadu_pd(src + x + 2);
-            __m128d v_dst1 = _mm_add_pd(_mm_mul_pd(v_src, v_scale), v_shift);
-
-            __m128 v_dst = _mm_movelh_ps(_mm_castsi128_ps(_mm_cvtpd_epi32(v_dst0)),
-                                         _mm_castsi128_ps(_mm_cvtpd_epi32(v_dst1)));
-
-            _mm_storeu_si128((__m128i *)(dst + x), _mm_castps_si128(v_dst));
+                v_store(dst + x, v_combine_low(v_round(v_src1), v_round(v_src2)));
+            }
         }
-
         return x;
     }
 };
@@ -2739,26 +2236,150 @@ struct cvtScale_SIMD<double, float, double>
     int operator () (const double * src, float * dst, int width, double scale, double shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128d v_scale = _mm_set1_pd(scale), v_shift = _mm_set1_pd(shift);
-
-        for ( ; x <= width - 4; x += 4)
+        if (hasSIMD128())
         {
-            __m128d v_src = _mm_loadu_pd(src + x);
-            __m128d v_dst0 = _mm_add_pd(_mm_mul_pd(v_src, v_scale), v_shift);
+            v_float64x2 v_shift = v_setall_f64(shift), v_scale = v_setall_f64(scale);
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float64x2 v_src1 = v_shift + v_scale * v_load(src + x);
+                v_float64x2 v_src2 = v_shift + v_scale * v_load(src + x + cWidth);
+                v_float32x4 v_dst1 = v_cvt_f32(v_src1);
+                v_float32x4 v_dst2 = v_cvt_f32(v_src2);
 
-            v_src = _mm_loadu_pd(src + x + 2);
-            __m128d v_dst1 = _mm_add_pd(_mm_mul_pd(v_src, v_scale), v_shift);
-
-            __m128 v_dst = _mm_movelh_ps(_mm_cvtpd_ps(v_dst0),
-                                         _mm_cvtpd_ps(v_dst1));
-
-            _mm_storeu_ps(dst + x, v_dst);
+                v_store(dst + x, v_combine_low(v_dst1, v_dst2));
+            }
         }
+        return x;
+    }
+};
 
+// to double
+
+template <>
+struct cvtScale_SIMD<uchar, double, double>
+{
+    int operator () (const uchar * src, double * dst, int width, double scale, double shift) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            v_float64x2 v_shift = v_setall_f64(shift), v_scale = v_setall_f64(scale);
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_uint32x4 v_src1, v_src2;
+                v_expand(v_load_expand(src + x), v_src1, v_src2);
+                v_store_scale_shift_s32_to_f64(dst + x, v_scale, v_shift
+                    , v_reinterpret_as_s32(v_src1), v_reinterpret_as_s32(v_src2));
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct cvtScale_SIMD<schar, double, double>
+{
+    int operator () (const schar * src, double * dst, int width, double scale, double shift) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            v_float64x2 v_shift = v_setall_f64(shift), v_scale = v_setall_f64(scale);
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_int32x4 v_src1, v_src2;
+                v_expand(v_load_expand(src + x), v_src1, v_src2);
+                v_store_scale_shift_s32_to_f64(dst + x, v_scale, v_shift, v_src1, v_src2);
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct cvtScale_SIMD<ushort, double, double>
+{
+    int operator () (const ushort * src, double * dst, int width, double scale, double shift) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            v_float64x2 v_shift = v_setall_f64(shift), v_scale = v_setall_f64(scale);
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_uint32x4 v_src1, v_src2;
+                v_expand(v_load(src + x), v_src1, v_src2);
+                v_store_scale_shift_s32_to_f64(dst + x, v_scale, v_shift
+                    , v_reinterpret_as_s32(v_src1), v_reinterpret_as_s32(v_src2));
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct cvtScale_SIMD<short, double, double>
+{
+    int operator () (const short * src, double * dst, int width, double scale, double shift) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            v_float64x2 v_shift = v_setall_f64(shift), v_scale = v_setall_f64(scale);
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_int32x4 v_src1, v_src2;
+                v_expand(v_load(src + x), v_src1, v_src2);
+                v_store_scale_shift_s32_to_f64(dst + x, v_scale, v_shift, v_src1, v_src2);
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct cvtScale_SIMD<int, double, double>
+{
+    int operator () (const int * src, double * dst, int width, double scale, double shift) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            v_float64x2 v_shift = v_setall_f64(shift), v_scale = v_setall_f64(scale);
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int32x4 v_src1 = v_load(src + x);
+                v_int32x4 v_src2 = v_load(src + x + cWidth);
+                v_store_scale_shift_s32_to_f64(dst + x, v_scale, v_shift, v_src1, v_src2);
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct cvtScale_SIMD<float, double, double>
+{
+    int operator () (const float * src, double * dst, int width, double scale, double shift) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            v_float64x2 v_shift = v_setall_f64(shift), v_scale = v_setall_f64(scale);
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_src1 = v_load(src + x);
+                v_float32x4 v_src2 = v_load(src + x + cWidth);
+                v_store_scale_shift_f32_to_f64(dst + x, v_scale, v_shift, v_src1, v_src2);
+            }
+        }
         return x;
     }
 };
@@ -2769,730 +2390,22 @@ struct cvtScale_SIMD<double, double, double>
     int operator () (const double * src, double * dst, int width, double scale, double shift) const
     {
         int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        __m128d v_scale = _mm_set1_pd(scale), v_shift = _mm_set1_pd(shift);
-
-        for ( ; x <= width - 2; x += 2)
+        if (hasSIMD128())
         {
-            __m128d v_src = _mm_loadu_pd(src + x);
-            __m128d v_dst = _mm_add_pd(_mm_mul_pd(v_src, v_scale), v_shift);
-            _mm_storeu_pd(dst + x, v_dst);
+            v_float64x2 v_shift = v_setall_f64(shift), v_scale = v_setall_f64(scale);
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float64x2 v_src1 = v_shift + v_scale * v_load(src + x);
+                v_float64x2 v_src2 = v_shift + v_scale * v_load(src + x + cWidth);
+                v_store(dst + x, v_src1);
+                v_store(dst + x + cWidth, v_src2);
+            }
         }
-
         return x;
     }
 };
-
-#elif CV_NEON
-
-// from uchar
-
-template <>
-struct cvtScale_SIMD<uchar, uchar, float>
-{
-    int operator () (const uchar * src, uchar * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vmovl_u8(vld1_u8(src + x));
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))), v_scale), v_shift);
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst1)),
-                                            vqmovn_u32(cv_vrndq_u32_f32(v_dst2)));
-            vst1_u8(dst + x, vqmovn_u16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<uchar, schar, float>
-{
-    int operator () (const uchar * src, schar * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vmovl_u8(vld1_u8(src + x));
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))), v_scale), v_shift);
-
-            int16x8_t v_dst = vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_dst1)),
-                                           vqmovn_s32(cv_vrndq_s32_f32(v_dst2)));
-            vst1_s8(dst + x, vqmovn_s16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<uchar, ushort, float>
-{
-    int operator () (const uchar * src, ushort * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vmovl_u8(vld1_u8(src + x));
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))), v_scale), v_shift);
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst1)),
-                                            vqmovn_u32(cv_vrndq_u32_f32(v_dst2)));
-            vst1q_u16(dst + x, v_dst);
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<uchar, short, float>
-{
-    int operator () (const uchar * src, short * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vmovl_u8(vld1_u8(src + x));
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))), v_scale), v_shift);
-
-            int16x8_t v_dst = vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_dst1)),
-                                           vqmovn_s32(cv_vrndq_s32_f32(v_dst2)));
-            vst1q_s16(dst + x, v_dst);
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<uchar, int, float>
-{
-    int operator () (const uchar * src, int * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vmovl_u8(vld1_u8(src + x));
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))), v_scale), v_shift);
-
-            vst1q_s32(dst + x, cv_vrndq_s32_f32(v_dst1));
-            vst1q_s32(dst + x + 4, cv_vrndq_s32_f32(v_dst2));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<uchar, float, float>
-{
-    int operator () (const uchar * src, float * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vmovl_u8(vld1_u8(src + x));
-            vst1q_f32(dst + x, vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))), v_scale), v_shift));
-            vst1q_f32(dst + x + 4, vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))), v_scale), v_shift));
-        }
-
-        return x;
-    }
-};
-
-// from schar
-
-template <>
-struct cvtScale_SIMD<schar, uchar, float>
-{
-    int operator () (const schar * src, uchar * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            int16x8_t v_src = vmovl_s8(vld1_s8(src + x));
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src))), v_scale), v_shift);
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst1)),
-                                            vqmovn_u32(cv_vrndq_u32_f32(v_dst2)));
-            vst1_u8(dst + x, vqmovn_u16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<schar, schar, float>
-{
-    int operator () (const schar * src, schar * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            int16x8_t v_src = vmovl_s8(vld1_s8(src + x));
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src))), v_scale), v_shift);
-
-            int16x8_t v_dst = vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_dst1)),
-                                           vqmovn_s32(cv_vrndq_s32_f32(v_dst2)));
-            vst1_s8(dst + x, vqmovn_s16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<schar, ushort, float>
-{
-    int operator () (const schar * src, ushort * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            int16x8_t v_src = vmovl_s8(vld1_s8(src + x));
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src))), v_scale), v_shift);
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst1)),
-                                            vqmovn_u32(cv_vrndq_u32_f32(v_dst2)));
-            vst1q_u16(dst + x, v_dst);
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<schar, short, float>
-{
-    int operator () (const schar * src, short * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            int16x8_t v_src = vmovl_s8(vld1_s8(src + x));
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src))), v_scale), v_shift);
-
-            int16x8_t v_dst = vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_dst1)),
-                                           vqmovn_s32(cv_vrndq_s32_f32(v_dst2)));
-            vst1q_s16(dst + x, v_dst);
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<schar, int, float>
-{
-    int operator () (const schar * src, int * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            int16x8_t v_src = vmovl_s8(vld1_s8(src + x));
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src))), v_scale), v_shift);
-
-            vst1q_s32(dst + x, cv_vrndq_s32_f32(v_dst1));
-            vst1q_s32(dst + x + 4, cv_vrndq_s32_f32(v_dst2));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<schar, float, float>
-{
-    int operator () (const schar * src, float * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            int16x8_t v_src = vmovl_s8(vld1_s8(src + x));
-            vst1q_f32(dst + x, vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src))), v_scale), v_shift));
-            vst1q_f32(dst + x + 4, vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src))), v_scale), v_shift));
-        }
-
-        return x;
-    }
-};
-
-// from ushort
-
-template <>
-struct cvtScale_SIMD<ushort, uchar, float>
-{
-    int operator () (const ushort * src, uchar * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vld1q_u16(src + x);
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))), v_scale), v_shift);
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst1)),
-                                            vqmovn_u32(cv_vrndq_u32_f32(v_dst2)));
-            vst1_u8(dst + x, vqmovn_u16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<ushort, schar, float>
-{
-    int operator () (const ushort * src, schar * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vld1q_u16(src + x);
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))), v_scale), v_shift);
-
-            int16x8_t v_dst = vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_dst1)),
-                                           vqmovn_s32(cv_vrndq_s32_f32(v_dst2)));
-            vst1_s8(dst + x, vqmovn_s16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<ushort, ushort, float>
-{
-    int operator () (const ushort * src, ushort * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vld1q_u16(src + x);
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))), v_scale), v_shift);
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst1)),
-                                            vqmovn_u32(cv_vrndq_u32_f32(v_dst2)));
-            vst1q_u16(dst + x, v_dst);
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<ushort, short, float>
-{
-    int operator () (const ushort * src, short * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vld1q_u16(src + x);
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))), v_scale), v_shift);
-
-            int16x8_t v_dst = vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_dst1)),
-                                           vqmovn_s32(cv_vrndq_s32_f32(v_dst2)));
-            vst1q_s16(dst + x, v_dst);
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<ushort, int, float>
-{
-    int operator () (const ushort * src, int * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vld1q_u16(src + x);
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))), v_scale), v_shift);
-
-            vst1q_s32(dst + x, cv_vrndq_s32_f32(v_dst1));
-            vst1q_s32(dst + x + 4, cv_vrndq_s32_f32(v_dst2));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<ushort, float, float>
-{
-    int operator () (const ushort * src, float * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            uint16x8_t v_src = vld1q_u16(src + x);
-            vst1q_f32(dst + x, vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))), v_scale), v_shift));
-            vst1q_f32(dst + x + 4, vaddq_f32(vmulq_f32(vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))), v_scale), v_shift));
-        }
-
-        return x;
-    }
-};
-
-// from short
-
-template <>
-struct cvtScale_SIMD<short, uchar, float>
-{
-    int operator () (const short * src, uchar * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            int16x8_t v_src = vld1q_s16(src + x);
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src))), v_scale), v_shift);
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst1)),
-                                            vqmovn_u32(cv_vrndq_u32_f32(v_dst2)));
-            vst1_u8(dst + x, vqmovn_u16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<short, schar, float>
-{
-    int operator () (const short * src, schar * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            int16x8_t v_src = vld1q_s16(src + x);
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src))), v_scale), v_shift);
-
-            int16x8_t v_dst = vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_dst1)),
-                                           vqmovn_s32(cv_vrndq_s32_f32(v_dst2)));
-            vst1_s8(dst + x, vqmovn_s16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<short, ushort, float>
-{
-    int operator () (const short * src, ushort * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            int16x8_t v_src = vld1q_s16(src + x);
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src))), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src))), v_scale), v_shift);
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst1)),
-                                            vqmovn_u32(cv_vrndq_u32_f32(v_dst2)));
-            vst1q_u16(dst + x, v_dst);
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<short, float, float>
-{
-    int operator () (const short * src, float * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            int16x8_t v_src = vld1q_s16(src + x);
-            vst1q_f32(dst + x, vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src))), v_scale), v_shift));
-            vst1q_f32(dst + x + 4, vaddq_f32(vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src))), v_scale), v_shift));
-        }
-
-        return x;
-    }
-};
-
-// from int
-
-template <>
-struct cvtScale_SIMD<int, uchar, float>
-{
-    int operator () (const int * src, uchar * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vld1q_s32(src + x)), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vld1q_s32(src + x + 4)), v_scale), v_shift);
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst1)),
-                                            vqmovn_u32(cv_vrndq_u32_f32(v_dst2)));
-            vst1_u8(dst + x, vqmovn_u16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<int, schar, float>
-{
-    int operator () (const int * src, schar * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vld1q_s32(src + x)), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vld1q_s32(src + x + 4)), v_scale), v_shift);
-
-            int16x8_t v_dst = vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_dst1)),
-                                           vqmovn_s32(cv_vrndq_s32_f32(v_dst2)));
-            vst1_s8(dst + x, vqmovn_s16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<int, ushort, float>
-{
-    int operator () (const int * src, ushort * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vld1q_s32(src + x)), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vld1q_s32(src + x + 4)), v_scale), v_shift);
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst1)),
-                                            vqmovn_u32(cv_vrndq_u32_f32(v_dst2)));
-            vst1q_u16(dst + x, v_dst);
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<int, short, float>
-{
-    int operator () (const int * src, short * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vld1q_s32(src + x)), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vcvtq_f32_s32(vld1q_s32(src + x + 4)), v_scale), v_shift);
-
-            int16x8_t v_dst = vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_dst1)),
-                                           vqmovn_s32(cv_vrndq_s32_f32(v_dst2)));
-            vst1q_s16(dst + x, v_dst);
-        }
-
-        return x;
-    }
-};
-
-// from float
-
-template <>
-struct cvtScale_SIMD<float, uchar, float>
-{
-    int operator () (const float * src, uchar * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vld1q_f32(src + x), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vld1q_f32(src + x + 4), v_scale), v_shift);
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst1)),
-                                            vqmovn_u32(cv_vrndq_u32_f32(v_dst2)));
-            vst1_u8(dst + x, vqmovn_u16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<float, schar, float>
-{
-    int operator () (const float * src, schar * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vld1q_f32(src + x), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vld1q_f32(src + x + 4), v_scale), v_shift);
-
-            int16x8_t v_dst = vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_dst1)),
-                                           vqmovn_s32(cv_vrndq_s32_f32(v_dst2)));
-            vst1_s8(dst + x, vqmovn_s16(v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<float, ushort, float>
-{
-    int operator () (const float * src, ushort * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vld1q_f32(src + x), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vld1q_f32(src + x + 4), v_scale), v_shift);
-
-            uint16x8_t v_dst = vcombine_u16(vqmovn_u32(cv_vrndq_u32_f32(v_dst1)),
-                                            vqmovn_u32(cv_vrndq_u32_f32(v_dst2)));
-            vst1q_u16(dst + x, v_dst);
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<float, short, float>
-{
-    int operator () (const float * src, short * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            float32x4_t v_dst1 = vaddq_f32(vmulq_f32(vld1q_f32(src + x), v_scale), v_shift);
-            float32x4_t v_dst2 = vaddq_f32(vmulq_f32(vld1q_f32(src + x + 4), v_scale), v_shift);
-
-            int16x8_t v_dst = vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_dst1)),
-                                            vqmovn_s32(cv_vrndq_s32_f32(v_dst2)));
-            vst1q_s16(dst + x, v_dst);
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<float, int, float>
-{
-    int operator () (const float * src, int * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 4; x += 4)
-            vst1q_s32(dst + x, cv_vrndq_s32_f32(vaddq_f32(vmulq_f32(vld1q_f32(src + x), v_scale), v_shift)));
-
-        return x;
-    }
-};
-
-template <>
-struct cvtScale_SIMD<float, float, float>
-{
-    int operator () (const float * src, float * dst, int width, float scale, float shift) const
-    {
-        int x = 0;
-        float32x4_t v_shift = vdupq_n_f32(shift), v_scale = vdupq_n_f32(scale);
-
-        for ( ; x <= width - 4; x += 4)
-            vst1q_f32(dst + x, vaddq_f32(vmulq_f32(vld1q_f32(src + x), v_scale), v_shift));
-
-        return x;
-    }
-};
-
+#endif
 #endif
 
 template<typename T, typename DT, typename WT> static void
@@ -3527,58 +2440,6 @@ cvtScale_( const T* src, size_t sstep,
     }
 }
 
-//vz optimized template specialization
-template<> void
-cvtScale_<short, short, float>( const short* src, size_t sstep,
-           short* dst, size_t dstep, Size size,
-           float scale, float shift )
-{
-    sstep /= sizeof(src[0]);
-    dstep /= sizeof(dst[0]);
-
-    for( ; size.height--; src += sstep, dst += dstep )
-    {
-        int x = 0;
-        #if CV_SSE2
-            if(USE_SSE2)
-            {
-                __m128 scale128 = _mm_set1_ps (scale);
-                __m128 shift128 = _mm_set1_ps (shift);
-                for(; x <= size.width - 8; x += 8 )
-                {
-                    __m128i r0 = _mm_loadl_epi64((const __m128i*)(src + x));
-                    __m128i r1 = _mm_loadl_epi64((const __m128i*)(src + x + 4));
-                    __m128 rf0 =_mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(r0, r0), 16));
-                    __m128 rf1 =_mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(r1, r1), 16));
-                    rf0 = _mm_add_ps(_mm_mul_ps(rf0, scale128), shift128);
-                    rf1 = _mm_add_ps(_mm_mul_ps(rf1, scale128), shift128);
-                    r0 = _mm_cvtps_epi32(rf0);
-                    r1 = _mm_cvtps_epi32(rf1);
-                    r0 = _mm_packs_epi32(r0, r1);
-                    _mm_storeu_si128((__m128i*)(dst + x), r0);
-                }
-            }
-        #elif CV_NEON
-        float32x4_t v_shift = vdupq_n_f32(shift);
-        for(; x <= size.width - 8; x += 8 )
-        {
-            int16x8_t v_src = vld1q_s16(src + x);
-            float32x4_t v_tmp1 = vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src)));
-            float32x4_t v_tmp2 = vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src)));
-
-            v_tmp1 = vaddq_f32(vmulq_n_f32(v_tmp1, scale), v_shift);
-            v_tmp2 = vaddq_f32(vmulq_n_f32(v_tmp2, scale), v_shift);
-
-            vst1q_s16(dst + x, vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_tmp1)),
-                                            vqmovn_s32(cv_vrndq_s32_f32(v_tmp2))));
-        }
-        #endif
-
-        for(; x < size.width; x++ )
-            dst[x] = saturate_cast<short>(src[x]*scale + shift);
-    }
-}
-
 template<> void
 cvtScale_<short, int, float>( const short* src, size_t sstep,
            int* dst, size_t dstep, Size size,
@@ -3590,58 +2451,33 @@ cvtScale_<short, int, float>( const short* src, size_t sstep,
     for( ; size.height--; src += sstep, dst += dstep )
     {
         int x = 0;
-
-        #if CV_AVX2
-        if (USE_AVX2)
+        #if CV_TRY_AVX2
+        if (CV_CPU_HAS_SUPPORT_AVX2)
         {
-            __m256 scale256 = _mm256_set1_ps(scale);
-            __m256 shift256 = _mm256_set1_ps(shift);
-            const int shuffle = 0xD8;
-
-            for ( ; x <= size.width - 16; x += 16)
-            {
-                __m256i v_src = _mm256_loadu_si256((const __m256i *)(src + x));
-                v_src = _mm256_permute4x64_epi64(v_src, shuffle);
-                __m256i v_src_lo = _mm256_srai_epi32(_mm256_unpacklo_epi16(v_src, v_src), 16);
-                __m256i v_src_hi = _mm256_srai_epi32(_mm256_unpackhi_epi16(v_src, v_src), 16);
-                __m256 v_dst0 = _mm256_add_ps(_mm256_mul_ps(_mm256_cvtepi32_ps(v_src_lo), scale256), shift256);
-                __m256 v_dst1 = _mm256_add_ps(_mm256_mul_ps(_mm256_cvtepi32_ps(v_src_hi), scale256), shift256);
-                _mm256_storeu_si256((__m256i *)(dst + x), _mm256_cvtps_epi32(v_dst0));
-                _mm256_storeu_si256((__m256i *)(dst + x + 8), _mm256_cvtps_epi32(v_dst1));
-            }
+            opt_AVX2::cvtScale_s16s32f32Line_AVX2(src, dst, scale, shift, size.width);
+            continue;
         }
         #endif
-        #if CV_SSE2
-        if (USE_SSE2)//~5X
+        #if CV_SIMD128
+        if (hasSIMD128())
         {
-            __m128 scale128 = _mm_set1_ps (scale);
-            __m128 shift128 = _mm_set1_ps (shift);
-            for(; x <= size.width - 8; x += 8 )
+            v_float32x4 v_shift = v_setall_f32(shift);
+            v_float32x4 v_scale = v_setall_f32(scale);
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= size.width - cWidth * 2; x += cWidth * 2)
             {
-                __m128i r0 = _mm_loadu_si128((const __m128i*)(src + x));
+                v_int16x8 v_src = v_load(src + x);
+                v_int32x4 v_src1, v_src2;
+                v_expand(v_src, v_src1, v_src2);
+                v_float32x4 v_tmp1 = v_cvt_f32(v_src1);
+                v_float32x4 v_tmp2 = v_cvt_f32(v_src2);
 
-                __m128 rf0 =_mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(r0, r0), 16));
-                __m128 rf1 =_mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(r0, r0), 16));
-                rf0 = _mm_add_ps(_mm_mul_ps(rf0, scale128), shift128);
-                rf1 = _mm_add_ps(_mm_mul_ps(rf1, scale128), shift128);
+                v_tmp1 = v_tmp1 * v_scale + v_shift;
+                v_tmp2 = v_tmp2 * v_scale + v_shift;
 
-                _mm_storeu_si128((__m128i*)(dst + x), _mm_cvtps_epi32(rf0));
-                _mm_storeu_si128((__m128i*)(dst + x + 4), _mm_cvtps_epi32(rf1));
+                v_store(dst + x, v_round(v_tmp1));
+                v_store(dst + x + cWidth, v_round(v_tmp2));
             }
-        }
-        #elif CV_NEON
-        float32x4_t v_shift = vdupq_n_f32(shift);
-        for(; x <= size.width - 8; x += 8 )
-        {
-            int16x8_t v_src = vld1q_s16(src + x);
-            float32x4_t v_tmp1 = vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src)));
-            float32x4_t v_tmp2 = vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src)));
-
-            v_tmp1 = vaddq_f32(vmulq_n_f32(v_tmp1, scale), v_shift);
-            v_tmp2 = vaddq_f32(vmulq_n_f32(v_tmp2, scale), v_shift);
-
-            vst1q_s32(dst + x, cv_vrndq_s32_f32(v_tmp1));
-            vst1q_s32(dst + x + 4, cv_vrndq_s32_f32(v_tmp2));
         }
         #endif
 
@@ -3659,181 +2495,7 @@ struct Cvt_SIMD
     }
 };
 
-#if CV_SSE2
-
-// from double
-
-template <>
-struct Cvt_SIMD<double, uchar>
-{
-    int operator() (const double * src, uchar * dst, int width) const
-    {
-        int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            __m128 v_src0 = _mm_cvtpd_ps(_mm_loadu_pd(src + x));
-            __m128 v_src1 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 2));
-            __m128 v_src2 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 4));
-            __m128 v_src3 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 6));
-
-            v_src0 = _mm_movelh_ps(v_src0, v_src1);
-            v_src1 = _mm_movelh_ps(v_src2, v_src3);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_src0),
-                                            _mm_cvtps_epi32(v_src1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packus_epi16(v_dst, v_dst));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct Cvt_SIMD<double, schar>
-{
-    int operator() (const double * src, schar * dst, int width) const
-    {
-        int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            __m128 v_src0 = _mm_cvtpd_ps(_mm_loadu_pd(src + x));
-            __m128 v_src1 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 2));
-            __m128 v_src2 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 4));
-            __m128 v_src3 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 6));
-
-            v_src0 = _mm_movelh_ps(v_src0, v_src1);
-            v_src1 = _mm_movelh_ps(v_src2, v_src3);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_src0),
-                                            _mm_cvtps_epi32(v_src1));
-            _mm_storel_epi64((__m128i *)(dst + x), _mm_packs_epi16(v_dst, v_dst));
-        }
-
-        return x;
-    }
-};
-
-#if CV_SSE4_1
-
-template <>
-struct Cvt_SIMD<double, ushort>
-{
-    bool haveSIMD;
-    Cvt_SIMD() { haveSIMD = checkHardwareSupport(CV_CPU_SSE4_1); }
-
-    int operator() (const double * src, ushort * dst, int width) const
-    {
-        int x = 0;
-
-        if (!haveSIMD)
-            return x;
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            __m128 v_src0 = _mm_cvtpd_ps(_mm_loadu_pd(src + x));
-            __m128 v_src1 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 2));
-            __m128 v_src2 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 4));
-            __m128 v_src3 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 6));
-
-            v_src0 = _mm_movelh_ps(v_src0, v_src1);
-            v_src1 = _mm_movelh_ps(v_src2, v_src3);
-
-            __m128i v_dst = _mm_packus_epi32(_mm_cvtps_epi32(v_src0),
-                                             _mm_cvtps_epi32(v_src1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
-        }
-
-        return x;
-    }
-};
-
-#endif // CV_SSE4_1
-
-template <>
-struct Cvt_SIMD<double, short>
-{
-    int operator() (const double * src, short * dst, int width) const
-    {
-        int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        for ( ; x <= width - 8; x += 8)
-        {
-            __m128 v_src0 = _mm_cvtpd_ps(_mm_loadu_pd(src + x));
-            __m128 v_src1 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 2));
-            __m128 v_src2 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 4));
-            __m128 v_src3 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 6));
-
-            v_src0 = _mm_movelh_ps(v_src0, v_src1);
-            v_src1 = _mm_movelh_ps(v_src2, v_src3);
-
-            __m128i v_dst = _mm_packs_epi32(_mm_cvtps_epi32(v_src0),
-                                            _mm_cvtps_epi32(v_src1));
-            _mm_storeu_si128((__m128i *)(dst + x), v_dst);
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct Cvt_SIMD<double, int>
-{
-    int operator() (const double * src, int * dst, int width) const
-    {
-        int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        for ( ; x <= width - 4; x += 4)
-        {
-            __m128 v_src0 = _mm_cvtpd_ps(_mm_loadu_pd(src + x));
-            __m128 v_src1 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 2));
-            v_src0 = _mm_movelh_ps(v_src0, v_src1);
-
-            _mm_storeu_si128((__m128i *)(dst + x), _mm_cvtps_epi32(v_src0));
-        }
-
-        return x;
-    }
-};
-
-template <>
-struct Cvt_SIMD<double, float>
-{
-    int operator() (const double * src, float * dst, int width) const
-    {
-        int x = 0;
-
-        if (!USE_SSE2)
-            return x;
-
-        for ( ; x <= width - 4; x += 4)
-        {
-            __m128 v_src0 = _mm_cvtpd_ps(_mm_loadu_pd(src + x));
-            __m128 v_src1 = _mm_cvtpd_ps(_mm_loadu_pd(src + x + 2));
-
-            _mm_storeu_ps(dst + x, _mm_movelh_ps(v_src0, v_src1));
-        }
-
-        return x;
-    }
-};
-
-
-#elif CV_NEON
-
+#if CV_SIMD128
 // from uchar
 
 template <>
@@ -3842,14 +2504,18 @@ struct Cvt_SIMD<uchar, schar>
     int operator() (const uchar * src, schar * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
-            vst1_s8(dst + x, vqmovn_s16(vreinterpretq_s16_u16(vmovl_u8(vld1_u8(src + x)))));
-
+        if (hasSIMD128())
+        {
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_int16x8 v_src = v_reinterpret_as_s16(v_load_expand(src + x));
+                v_store_low(dst + x, v_pack(v_src, v_src));
+            }
+        }
         return x;
     }
 };
-
 
 template <>
 struct Cvt_SIMD<uchar, ushort>
@@ -3857,10 +2523,12 @@ struct Cvt_SIMD<uchar, ushort>
     int operator() (const uchar * src, ushort * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
-            vst1q_u16(dst + x, vmovl_u8(vld1_u8(src + x)));
-
+        if (hasSIMD128())
+        {
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+                v_store(dst + x, v_load_expand(src + x));
+        }
         return x;
     }
 };
@@ -3871,10 +2539,15 @@ struct Cvt_SIMD<uchar, short>
     int operator() (const uchar * src, short * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
-            vst1q_s16(dst + x, vreinterpretq_s16_u16(vmovl_u8(vld1_u8(src + x))));
-
+        if (hasSIMD128())
+        {
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_int16x8 v_src = v_reinterpret_as_s16(v_load_expand(src + x));
+                v_store(dst + x, v_src);
+            }
+        }
         return x;
     }
 };
@@ -3885,14 +2558,18 @@ struct Cvt_SIMD<uchar, int>
     int operator() (const uchar * src, int * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            uint16x8_t v_src = vmovl_u8(vld1_u8(src + x));
-            vst1q_s32(dst + x, vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(v_src))));
-            vst1q_s32(dst + x + 4, vreinterpretq_s32_u32(vmovl_u16(vget_high_u16(v_src))));
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_uint16x8 v_src = v_load_expand(src + x);
+                v_uint32x4 v_src1, v_src2;
+                v_expand(v_src, v_src1, v_src2);
+                v_store(dst + x, v_reinterpret_as_s32(v_src1));
+                v_store(dst + x + cWidth, v_reinterpret_as_s32(v_src2));
+            }
         }
-
         return x;
     }
 };
@@ -3903,14 +2580,18 @@ struct Cvt_SIMD<uchar, float>
     int operator() (const uchar * src, float * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            uint16x8_t v_src = vmovl_u8(vld1_u8(src + x));
-            vst1q_f32(dst + x, vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))));
-            vst1q_f32(dst + x + 4, vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))));
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_uint16x8 v_src = v_load_expand(src + x);
+                v_uint32x4 v_src1, v_src2;
+                v_expand(v_src, v_src1, v_src2);
+                v_store(dst + x, v_cvt_f32(v_reinterpret_as_s32(v_src1)));
+                v_store(dst + x + cWidth, v_cvt_f32(v_reinterpret_as_s32(v_src2)));
+            }
         }
-
         return x;
     }
 };
@@ -3923,9 +2604,12 @@ struct Cvt_SIMD<schar, uchar>
     int operator() (const schar * src, uchar * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
-            vst1_u8(dst + x, vqmovun_s16(vmovl_s8(vld1_s8(src + x))));
+        if (hasSIMD128())
+        {
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+                v_pack_u_store(dst + x, v_load_expand(src + x));
+        }
 
         return x;
     }
@@ -3937,10 +2621,12 @@ struct Cvt_SIMD<schar, short>
     int operator() (const schar * src, short * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
-            vst1q_s16(dst + x, vmovl_s8(vld1_s8(src + x)));
-
+        if (hasSIMD128())
+        {
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+                v_store(dst + x, v_load_expand(src + x));
+        }
         return x;
     }
 };
@@ -3951,14 +2637,17 @@ struct Cvt_SIMD<schar, ushort>
     int operator() (const schar * src, ushort * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            int16x8_t v_src = vmovl_s8(vld1_s8(src + x));
-            vst1q_u16(dst + x, vcombine_u16(vqmovun_s32(vmovl_s16(vget_low_s16(v_src))),
-                                            vqmovun_s32(vmovl_s16(vget_high_s16(v_src)))));
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_int16x8 v_src = v_load_expand(src + x);
+                v_int32x4 v_src1, v_src2;
+                v_expand(v_src, v_src1, v_src2);
+                v_store(dst + x, v_pack_u(v_src1, v_src2));
+            }
         }
-
         return x;
     }
 };
@@ -3970,14 +2659,18 @@ struct Cvt_SIMD<schar, int>
     int operator() (const schar * src, int * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            int16x8_t v_src = vmovl_s8(vld1_s8(src + x));
-            vst1q_s32(dst + x, vmovl_s16(vget_low_s16(v_src)));
-            vst1q_s32(dst + x + 4, vmovl_s16(vget_high_s16(v_src)));
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int16x8 v_src = v_load_expand(src + x);
+                v_int32x4 v_src1, v_src2;
+                v_expand(v_src, v_src1, v_src2);
+                v_store(dst + x, v_src1);
+                v_store(dst + x + cWidth, v_src2);
+            }
         }
-
         return x;
     }
 };
@@ -3988,14 +2681,18 @@ struct Cvt_SIMD<schar, float>
     int operator() (const schar * src, float * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            int16x8_t v_src = vmovl_s8(vld1_s8(src + x));
-            vst1q_f32(dst + x, vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src))));
-            vst1q_f32(dst + x + 4, vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src))));
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int16x8 v_src = v_load_expand(src + x);
+                v_int32x4 v_src1, v_src2;
+                v_expand(v_src, v_src1, v_src2);
+                v_store(dst + x, v_cvt_f32(v_src1));
+                v_store(dst + x + cWidth, v_cvt_f32(v_src2));
+            }
         }
-
         return x;
     }
 };
@@ -4008,13 +2705,15 @@ struct Cvt_SIMD<ushort, uchar>
     int operator() (const ushort * src, uchar * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 16; x += 16)
+        if (hasSIMD128())
         {
-            uint16x8_t v_src1 = vld1q_u16(src + x), v_src2 = vld1q_u16(src + x + 8);
-            vst1q_u8(dst + x, vcombine_u8(vqmovn_u16(v_src1), vqmovn_u16(v_src2)));
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_uint16x8 v_src1 = v_load(src + x), v_src2 = v_load(src + x + cWidth);
+                v_store(dst + x, v_pack(v_src1, v_src2));
+            }
         }
-
         return x;
     }
 };
@@ -4025,19 +2724,21 @@ struct Cvt_SIMD<ushort, schar>
     int operator() (const ushort * src, schar * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 16; x += 16)
+        if (hasSIMD128())
         {
-            uint16x8_t v_src1 = vld1q_u16(src + x), v_src2 = vld1q_u16(src + x + 8);
-            int32x4_t v_dst10 = vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(v_src1)));
-            int32x4_t v_dst11 = vreinterpretq_s32_u32(vmovl_u16(vget_high_u16(v_src1)));
-            int32x4_t v_dst20 = vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(v_src2)));
-            int32x4_t v_dst21 = vreinterpretq_s32_u32(vmovl_u16(vget_high_u16(v_src2)));
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_uint16x8 v_src1 = v_load(src + x), v_src2 = v_load(src + x + cWidth);
+                v_uint32x4 v_dst10, v_dst11, v_dst20, v_dst21;
+                v_expand(v_src1, v_dst10, v_dst11);
+                v_expand(v_src2, v_dst20, v_dst21);
 
-            vst1q_s8(dst + x, vcombine_s8(vqmovn_s16(vcombine_s16(vqmovn_s32(v_dst10), vqmovn_s32(v_dst11))),
-                                          vqmovn_s16(vcombine_s16(vqmovn_s32(v_dst20), vqmovn_s32(v_dst21)))));
+                v_store(dst + x, v_pack(
+                    v_pack(v_reinterpret_as_s32(v_dst10), v_reinterpret_as_s32(v_dst11)),
+                    v_pack(v_reinterpret_as_s32(v_dst20), v_reinterpret_as_s32(v_dst21))));
+            }
         }
-
         return x;
     }
 };
@@ -4048,16 +2749,17 @@ struct Cvt_SIMD<ushort, short>
     int operator() (const ushort * src, short * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            uint16x8_t v_src = vld1q_u16(src + x);
-            int32x4_t v_dst0 = vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(v_src)));
-            int32x4_t v_dst1 = vreinterpretq_s32_u32(vmovl_u16(vget_high_u16(v_src)));
-
-            vst1q_s16(dst + x, vcombine_s16(vqmovn_s32(v_dst0), vqmovn_s32(v_dst1)));
+            int cWidth = v_uint16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_uint16x8 v_src = v_load(src + x);
+                v_uint32x4 v_dst0, v_dst1;
+                v_expand(v_src, v_dst0, v_dst1);
+                v_store(dst + x, v_pack(v_reinterpret_as_s32(v_dst0), v_reinterpret_as_s32(v_dst1)));
+            }
         }
-
         return x;
     }
 };
@@ -4068,14 +2770,18 @@ struct Cvt_SIMD<ushort, int>
     int operator() (const ushort * src, int * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            uint16x8_t v_src = vld1q_u16(src + x);
-            vst1q_s32(dst + x, vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(v_src))));
-            vst1q_s32(dst + x + 4, vreinterpretq_s32_u32(vmovl_u16(vget_high_u16(v_src))));
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_uint16x8 v_src = v_load(src + x);
+                v_uint32x4 v_src1, v_src2;
+                v_expand(v_src, v_src1, v_src2);
+                v_store(dst + x, v_reinterpret_as_s32(v_src1));
+                v_store(dst + x + cWidth, v_reinterpret_as_s32(v_src2));
+            }
         }
-
         return x;
     }
 };
@@ -4086,17 +2792,22 @@ struct Cvt_SIMD<ushort, float>
     int operator() (const ushort * src, float * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            uint16x8_t v_src = vld1q_u16(src + x);
-            vst1q_f32(dst + x, vcvtq_f32_u32(vmovl_u16(vget_low_u16(v_src))));
-            vst1q_f32(dst + x + 4, vcvtq_f32_u32(vmovl_u16(vget_high_u16(v_src))));
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_uint16x8 v_src = v_load(src + x);
+                v_uint32x4 v_src1, v_src2;
+                v_expand(v_src, v_src1, v_src2);
+                v_store(dst + x, v_cvt_f32(v_reinterpret_as_s32(v_src1)));
+                v_store(dst + x + cWidth, v_cvt_f32(v_reinterpret_as_s32(v_src2)));
+            }
         }
-
         return x;
     }
 };
+
 
 // from short
 
@@ -4106,13 +2817,15 @@ struct Cvt_SIMD<short, uchar>
     int operator() (const short * src, uchar * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 16; x += 16)
+        if (hasSIMD128())
         {
-            int16x8_t v_src1 = vld1q_s16(src + x), v_src2 = vld1q_s16(src + x + 8);
-            vst1q_u8(dst + x, vcombine_u8(vqmovun_s16(v_src1), vqmovun_s16(v_src2)));
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int16x8 v_src1 = v_load(src + x), v_src2 = v_load(src + x + cWidth);
+                v_store(dst + x, v_pack_u(v_src1, v_src2));
+            }
         }
-
         return x;
     }
 };
@@ -4123,13 +2836,15 @@ struct Cvt_SIMD<short, schar>
     int operator() (const short * src, schar * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 16; x += 16)
+        if (hasSIMD128())
         {
-            int16x8_t v_src1 = vld1q_s16(src + x), v_src2 = vld1q_s16(src + x + 8);
-            vst1q_s8(dst + x, vcombine_s8(vqmovn_s16(v_src1), vqmovn_s16(v_src2)));
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int16x8 v_src1 = v_load(src + x), v_src2 = v_load(src + x + cWidth);
+                v_store(dst + x, v_pack(v_src1, v_src2));
+            }
         }
-
         return x;
     }
 };
@@ -4140,15 +2855,17 @@ struct Cvt_SIMD<short, ushort>
     int operator() (const short * src, ushort * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            int16x8_t v_src = vld1q_s16(src + x);
-            uint16x4_t v_dst1 = vqmovun_s32(vmovl_s16(vget_low_s16(v_src)));
-            uint16x4_t v_dst2 = vqmovun_s32(vmovl_s16(vget_high_s16(v_src)));
-            vst1q_u16(dst + x, vcombine_u16(v_dst1, v_dst2));
+            int cWidth = v_int16x8::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+            {
+                v_int16x8 v_src = v_load(src + x);
+                v_int32x4 v_dst1, v_dst2;
+                v_expand(v_src, v_dst1, v_dst2);
+                v_store(dst + x, v_pack_u(v_dst1, v_dst2));
+            }
         }
-
         return x;
     }
 };
@@ -4159,14 +2876,18 @@ struct Cvt_SIMD<short, int>
     int operator() (const short * src, int * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            int16x8_t v_src = vld1q_s16(src + x);
-            vst1q_s32(dst + x, vmovl_s16(vget_low_s16(v_src)));
-            vst1q_s32(dst + x + 4, vmovl_s16(vget_high_s16(v_src)));
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int16x8 v_src = v_load(src + x);
+                v_int32x4 v_dst1, v_dst2;
+                v_expand(v_src, v_dst1, v_dst2);
+                v_store(dst + x, v_dst1);
+                v_store(dst + x + cWidth, v_dst2);
+            }
         }
-
         return x;
     }
 };
@@ -4177,14 +2898,18 @@ struct Cvt_SIMD<short, float>
     int operator() (const short * src, float * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            int16x8_t v_src = vld1q_s16(src + x);
-            vst1q_f32(dst + x, vcvtq_f32_s32(vmovl_s16(vget_low_s16(v_src))));
-            vst1q_f32(dst + x + 4, vcvtq_f32_s32(vmovl_s16(vget_high_s16(v_src))));
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int16x8 v_src = v_load(src + x);
+                v_int32x4 v_dst1, v_dst2;
+                v_expand(v_src, v_dst1, v_dst2);
+                v_store(dst + x, v_cvt_f32(v_dst1));
+                v_store(dst + x + cWidth, v_cvt_f32(v_dst2));
+            }
         }
-
         return x;
     }
 };
@@ -4197,16 +2922,18 @@ struct Cvt_SIMD<int, uchar>
     int operator() (const int * src, uchar * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 16; x += 16)
+        if (hasSIMD128())
         {
-            int32x4_t v_src1 = vld1q_s32(src + x), v_src2 = vld1q_s32(src + x + 4);
-            int32x4_t v_src3 = vld1q_s32(src + x + 8), v_src4 = vld1q_s32(src + x + 12);
-            uint8x8_t v_dst1 = vqmovn_u16(vcombine_u16(vqmovun_s32(v_src1), vqmovun_s32(v_src2)));
-            uint8x8_t v_dst2 = vqmovn_u16(vcombine_u16(vqmovun_s32(v_src3), vqmovun_s32(v_src4)));
-            vst1q_u8(dst + x, vcombine_u8(v_dst1, v_dst2));
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_int32x4 v_src1 = v_load(src + x), v_src2 = v_load(src + x + cWidth);
+                v_int32x4 v_src3 = v_load(src + x + cWidth * 2), v_src4 = v_load(src + x + cWidth * 3);
+                v_uint16x8 v_dst1 = v_pack_u(v_src1, v_src2);
+                v_uint16x8 v_dst2 = v_pack_u(v_src3, v_src4);
+                v_store(dst + x, v_pack(v_dst1, v_dst2));
+            }
         }
-
         return x;
     }
 };
@@ -4217,16 +2944,18 @@ struct Cvt_SIMD<int, schar>
     int operator() (const int * src, schar * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 16; x += 16)
+        if (hasSIMD128())
         {
-            int32x4_t v_src1 = vld1q_s32(src + x), v_src2 = vld1q_s32(src + x + 4);
-            int32x4_t v_src3 = vld1q_s32(src + x + 8), v_src4 = vld1q_s32(src + x + 12);
-            int8x8_t v_dst1 = vqmovn_s16(vcombine_s16(vqmovn_s32(v_src1), vqmovn_s32(v_src2)));
-            int8x8_t v_dst2 = vqmovn_s16(vcombine_s16(vqmovn_s32(v_src3), vqmovn_s32(v_src4)));
-            vst1q_s8(dst + x, vcombine_s8(v_dst1, v_dst2));
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_int32x4 v_src1 = v_load(src + x), v_src2 = v_load(src + x + cWidth);
+                v_int32x4 v_src3 = v_load(src + x + cWidth * 2), v_src4 = v_load(src + x + cWidth * 3);
+                v_int16x8 v_dst1 = v_pack(v_src1, v_src2);
+                v_int16x8 v_dst2 = v_pack(v_src3, v_src4);
+                v_store(dst + x, v_pack(v_dst1, v_dst2));
+            }
         }
-
         return x;
     }
 };
@@ -4238,13 +2967,15 @@ struct Cvt_SIMD<int, ushort>
     int operator() (const int * src, ushort * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            int32x4_t v_src1 = vld1q_s32(src + x), v_src2 = vld1q_s32(src + x + 4);
-            vst1q_u16(dst + x, vcombine_u16(vqmovun_s32(v_src1), vqmovun_s32(v_src2)));
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int32x4 v_src1 = v_load(src + x), v_src2 = v_load(src + x + cWidth);
+                v_store(dst + x, v_pack_u(v_src1, v_src2));
+            }
         }
-
         return x;
     }
 };
@@ -4255,13 +2986,15 @@ struct Cvt_SIMD<int, short>
     int operator() (const int * src, short * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            int32x4_t v_src1 = vld1q_s32(src + x), v_src2 = vld1q_s32(src + x + 4);
-            vst1q_s16(dst + x, vcombine_s16(vqmovn_s32(v_src1), vqmovn_s32(v_src2)));
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int32x4 v_src1 = v_load(src + x), v_src2 = v_load(src + x + cWidth);
+                v_store(dst + x, v_pack(v_src1, v_src2));
+            }
         }
-
         return x;
     }
 };
@@ -4272,10 +3005,12 @@ struct Cvt_SIMD<int, float>
     int operator() (const int * src, float * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 4; x += 4)
-            vst1q_f32(dst + x, vcvtq_f32_s32(vld1q_s32(src + x)));
-
+        if (hasSIMD128())
+        {
+            int cWidth = v_int32x4::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+                v_store(dst + x, v_cvt_f32(v_load(src + x)));
+        }
         return x;
     }
 };
@@ -4288,18 +3023,20 @@ struct Cvt_SIMD<float, uchar>
     int operator() (const float * src, uchar * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 16; x += 16)
+        if (hasSIMD128())
         {
-            uint32x4_t v_src1 = cv_vrndq_u32_f32(vld1q_f32(src + x));
-            uint32x4_t v_src2 = cv_vrndq_u32_f32(vld1q_f32(src + x + 4));
-            uint32x4_t v_src3 = cv_vrndq_u32_f32(vld1q_f32(src + x + 8));
-            uint32x4_t v_src4 = cv_vrndq_u32_f32(vld1q_f32(src + x + 12));
-            uint8x8_t v_dst1 = vqmovn_u16(vcombine_u16(vqmovn_u32(v_src1), vqmovn_u32(v_src2)));
-            uint8x8_t v_dst2 = vqmovn_u16(vcombine_u16(vqmovn_u32(v_src3), vqmovn_u32(v_src4)));
-            vst1q_u8(dst + x, vcombine_u8(v_dst1, v_dst2));
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_int32x4 v_src1 = v_round(v_load(src + x));
+                v_int32x4 v_src2 = v_round(v_load(src + x + cWidth));
+                v_int32x4 v_src3 = v_round(v_load(src + x + cWidth * 2));
+                v_int32x4 v_src4 = v_round(v_load(src + x + cWidth * 3));
+                v_uint16x8 v_dst1 = v_pack_u(v_src1, v_src2);
+                v_uint16x8 v_dst2 = v_pack_u(v_src3, v_src4);
+                v_store(dst + x, v_pack(v_dst1, v_dst2));
+            }
         }
-
         return x;
     }
 };
@@ -4310,22 +3047,23 @@ struct Cvt_SIMD<float, schar>
     int operator() (const float * src, schar * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 16; x += 16)
+        if (hasSIMD128())
         {
-            int32x4_t v_src1 = cv_vrndq_s32_f32(vld1q_f32(src + x));
-            int32x4_t v_src2 = cv_vrndq_s32_f32(vld1q_f32(src + x + 4));
-            int32x4_t v_src3 = cv_vrndq_s32_f32(vld1q_f32(src + x + 8));
-            int32x4_t v_src4 = cv_vrndq_s32_f32(vld1q_f32(src + x + 12));
-            int8x8_t v_dst1 = vqmovn_s16(vcombine_s16(vqmovn_s32(v_src1), vqmovn_s32(v_src2)));
-            int8x8_t v_dst2 = vqmovn_s16(vcombine_s16(vqmovn_s32(v_src3), vqmovn_s32(v_src4)));
-            vst1q_s8(dst + x, vcombine_s8(v_dst1, v_dst2));
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_int32x4 v_src1 = v_round(v_load(src + x));
+                v_int32x4 v_src2 = v_round(v_load(src + x + cWidth));
+                v_int32x4 v_src3 = v_round(v_load(src + x + cWidth * 2));
+                v_int32x4 v_src4 = v_round(v_load(src + x + cWidth * 3));
+                v_int16x8 v_dst1 = v_pack(v_src1, v_src2);
+                v_int16x8 v_dst2 = v_pack(v_src3, v_src4);
+                v_store(dst + x, v_pack(v_dst1, v_dst2));
+            }
         }
-
         return x;
     }
 };
-
 
 template <>
 struct Cvt_SIMD<float, ushort>
@@ -4333,14 +3071,36 @@ struct Cvt_SIMD<float, ushort>
     int operator() (const float * src, ushort * dst, int width) const
     {
         int x = 0;
-
-        for ( ; x <= width - 8; x += 8)
+        if (hasSIMD128())
         {
-            uint32x4_t v_src1 = cv_vrndq_u32_f32(vld1q_f32(src + x));
-            uint32x4_t v_src2 = cv_vrndq_u32_f32(vld1q_f32(src + x + 4));
-            vst1q_u16(dst + x, vcombine_u16(vqmovn_u32(v_src1), vqmovn_u32(v_src2)));
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int32x4 v_src1 = v_round(v_load(src + x));
+                v_int32x4 v_src2 = v_round(v_load(src + x + cWidth));
+                v_store(dst + x, v_pack_u(v_src1, v_src2));
+            }
         }
+        return x;
+    }
+};
 
+template <>
+struct Cvt_SIMD<float, short>
+{
+    int operator() (const float * src, short * dst, int width) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int32x4 v_src1 = v_round(v_load(src + x));
+                v_int32x4 v_src2 = v_round(v_load(src + x + cWidth));
+                v_store(dst + x, v_pack(v_src1, v_src2));
+            }
+        }
         return x;
     }
 };
@@ -4351,329 +3111,466 @@ struct Cvt_SIMD<float, int>
     int operator() (const float * src, int * dst, int width) const
     {
         int x = 0;
+        if (hasSIMD128())
+        {
+            int cWidth = v_float32x4::nlanes;
+            for (; x <= width - cWidth; x += cWidth)
+                v_store(dst + x, v_round(v_load(src + x)));
+        }
+        return x;
+    }
+};
+#if CV_SIMD128_64F
+// from double
 
-        for ( ; x <= width - 4; x += 4)
-            vst1q_s32(dst + x, cv_vrndq_s32_f32(vld1q_f32(src + x)));
+template <>
+struct Cvt_SIMD<double, uchar>
+{
+    int operator() (const double * src, uchar * dst, int width) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_float32x4 v_src0 = v_cvt_f32(v_load(src + x));
+                v_float32x4 v_src1 = v_cvt_f32(v_load(src + x + cWidth));
+                v_float32x4 v_src2 = v_cvt_f32(v_load(src + x + cWidth * 2));
+                v_float32x4 v_src3 = v_cvt_f32(v_load(src + x + cWidth * 3));
 
+                v_src0 = v_combine_low(v_src0, v_src1);
+                v_src1 = v_combine_low(v_src2, v_src3);
+
+                v_int16x8 v_dst = v_pack(v_round(v_src0), v_round(v_src1));
+                v_pack_u_store(dst + x, v_dst);
+            }
+        }
         return x;
     }
 };
 
-#endif
-
-#if !( ( defined (__arm__) || defined (__aarch64__) ) && ( defined (__GNUC__) && ( ( ( 4 <= __GNUC__ ) && ( 7 <= __GNUC__ ) ) || ( 5 <= __GNUC__ ) ) ) )
-// const numbers for floating points format
-const unsigned int kShiftSignificand    = 13;
-const unsigned int kMaskFp16Significand = 0x3ff;
-const unsigned int kBiasFp16Exponent    = 15;
-const unsigned int kBiasFp32Exponent    = 127;
-
-union fp32Int32
+template <>
+struct Cvt_SIMD<double, schar>
 {
-    int i;
-    float f;
-    struct _fp32Format
+    int operator() (const double * src, schar * dst, int width) const
     {
-        unsigned int significand : 23;
-        unsigned int exponent    : 8;
-        unsigned int sign        : 1;
-    } fmt;
-};
-#endif
-
-union fp16Int16
-{
-    short i;
-#if ( defined (__arm__) || defined (__aarch64__) ) && ( defined (__GNUC__) && ( ( ( 4 <= __GNUC__ ) && ( 7 <= __GNUC__ ) ) || ( 5 <= __GNUC__ ) ) )
-    __fp16 h;
-#endif
-    struct _fp16Format
-    {
-        unsigned int significand : 10;
-        unsigned int exponent    : 5;
-        unsigned int sign        : 1;
-    } fmt;
-};
-
-#if ( defined (__arm__) || defined (__aarch64__) ) && ( defined (__GNUC__) && ( ( ( 4 <= __GNUC__ ) && ( 7 <= __GNUC__ ) ) || ( 5 <= __GNUC__ ) ) )
-static float convertFp16SW(short fp16)
-{
-    // Fp16 -> Fp32
-    fp16Int16 a;
-    a.i = fp16;
-    return (float)a.h;
-}
-#else
-static float convertFp16SW(short fp16)
-{
-    // Fp16 -> Fp32
-    fp16Int16 b;
-    b.i = fp16;
-    int exponent    = b.fmt.exponent - kBiasFp16Exponent;
-    int significand = b.fmt.significand;
-
-    fp32Int32 a;
-    a.i = 0;
-    a.fmt.sign = b.fmt.sign; // sign bit
-    if( exponent == 16 )
-    {
-        // Inf or NaN
-        a.i = a.i | 0x7F800000;
-        if( significand != 0 )
+        int x = 0;
+        if (hasSIMD128())
         {
-            // NaN
-#if defined(__x86_64__) || defined(_M_X64)
-            // 64bit
-            a.i = a.i | 0x7FC00000;
-#endif
-            a.fmt.significand = a.fmt.significand | (significand << kShiftSignificand);
-        }
-        return a.f;
-    }
-    else if ( exponent == -15 )
-    {
-        // subnormal in Fp16
-        if( significand == 0 )
-        {
-            // zero
-            return a.f;
-        }
-        else
-        {
-            int shift = -1;
-            while( ( significand & 0x400 ) == 0 )
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
             {
-                significand = significand << 1;
-                shift++;
+                v_float32x4 v_src0 = v_cvt_f32(v_load(src + x));
+                v_float32x4 v_src1 = v_cvt_f32(v_load(src + x + cWidth));
+                v_float32x4 v_src2 = v_cvt_f32(v_load(src + x + cWidth * 2));
+                v_float32x4 v_src3 = v_cvt_f32(v_load(src + x + cWidth * 3));
+
+                v_src0 = v_combine_low(v_src0, v_src1);
+                v_src1 = v_combine_low(v_src2, v_src3);
+
+                v_int16x8 v_dst = v_pack(v_round(v_src0), v_round(v_src1));
+                v_store_low(dst + x, v_pack(v_dst, v_dst));
             }
-            significand = significand & kMaskFp16Significand;
-            exponent -= shift;
         }
+        return x;
     }
+};
 
-    a.fmt.exponent = (exponent+kBiasFp32Exponent);
-    a.fmt.significand = significand << kShiftSignificand;
-    return a.f;
-}
-#endif
-
-#if ( defined (__arm__) || defined (__aarch64__) ) && ( defined (__GNUC__) && ( ( ( 4 <= __GNUC__ ) && ( 7 <= __GNUC__ ) ) || ( 5 <= __GNUC__ ) ) )
-static short convertFp16SW(float fp32)
+template <>
+struct Cvt_SIMD<double, ushort>
 {
-    // Fp32 -> Fp16
-    fp16Int16 a;
-    a.h = (__fp16)fp32;
-    return a.i;
-}
-#else
-static short convertFp16SW(float fp32)
-{
-    // Fp32 -> Fp16
-    fp32Int32 a;
-    a.f = fp32;
-    int exponent    = a.fmt.exponent - kBiasFp32Exponent;
-    int significand = a.fmt.significand;
-
-    fp16Int16 result;
-    result.i = 0;
-    unsigned int absolute = a.i & 0x7fffffff;
-    if( 0x477ff000 <= absolute )
+    int operator() (const double * src, ushort * dst, int width) const
     {
-        // Inf in Fp16
-        result.i = result.i | 0x7C00;
-        if( exponent == 128 && significand != 0 )
-        {
-            // NaN
-            result.i = (short)( result.i | 0x200 | ( significand >> kShiftSignificand ) );
-        }
-    }
-    else if ( absolute < 0x33000001 )
-    {
-        // too small for fp16
-        result.i = 0;
-    }
-    else if ( absolute < 0x33c00000 )
-    {
-        result.i = 1;
-    }
-    else if ( absolute < 0x34200001 )
-    {
-        result.i = 2;
-    }
-    else if ( absolute < 0x387fe000 )
-    {
-        // subnormal in Fp16
-        int fp16Significand = significand | 0x800000;
-        int bitShift = (-exponent) - 1;
-        fp16Significand = fp16Significand >> bitShift;
-
-        // special cases to round up
-        bitShift = exponent + 24;
-        int threshold = ( ( 0x400000 >> bitShift ) | ( ( ( significand & ( 0x800000 >> bitShift ) ) >> ( 126 - a.fmt.exponent ) ) ^ 1 ) );
-        if( threshold <= ( significand & ( 0xffffff >> ( exponent + 25 ) ) ) )
-        {
-            fp16Significand++;
-        }
-        result.i = (short)fp16Significand;
-    }
-    else
-    {
-        // usual situation
-        // exponent
-        result.fmt.exponent = ( exponent + kBiasFp16Exponent );
-
-        // significand;
-        short fp16Significand = (short)(significand >> kShiftSignificand);
-        result.fmt.significand = fp16Significand;
-
-        // special cases to round up
-        short lsb10bitsFp32 = (significand & 0x1fff);
-        short threshold = 0x1000 + ( ( fp16Significand & 0x1 ) ? 0 : 1 );
-        if( threshold <= lsb10bitsFp32 )
-        {
-            result.i++;
-        }
-        else if ( fp16Significand == 0x3ff && exponent == -15)
-        {
-            result.i++;
-        }
-    }
-
-    // sign bit
-    result.fmt.sign = a.fmt.sign;
-    return result.i;
-}
+        int x = 0;
+#if CV_TRY_SSE4_1
+        if (CV_CPU_HAS_SUPPORT_SSE4_1)
+            return opt_SSE4_1::Cvt_SIMD_f64u16_SSE41(src, dst, width);
 #endif
+        if (hasSIMD128())
+        {
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_float32x4 v_src0 = v_cvt_f32(v_load(src + x));
+                v_float32x4 v_src1 = v_cvt_f32(v_load(src + x + cWidth));
+                v_float32x4 v_src2 = v_cvt_f32(v_load(src + x + cWidth * 2));
+                v_float32x4 v_src3 = v_cvt_f32(v_load(src + x + cWidth * 3));
+
+                v_src0 = v_combine_low(v_src0, v_src1);
+                v_src1 = v_combine_low(v_src2, v_src3);
+
+                v_uint16x8 v_dst = v_pack_u(v_round(v_src0), v_round(v_src1));
+                v_store(dst + x, v_dst);
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct Cvt_SIMD<double, short>
+{
+    int operator() (const double * src, short * dst, int width) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_float32x4 v_src0 = v_cvt_f32(v_load(src + x));
+                v_float32x4 v_src1 = v_cvt_f32(v_load(src + x + cWidth));
+                v_float32x4 v_src2 = v_cvt_f32(v_load(src + x + cWidth * 2));
+                v_float32x4 v_src3 = v_cvt_f32(v_load(src + x + cWidth * 3));
+
+                v_src0 = v_combine_low(v_src0, v_src1);
+                v_src1 = v_combine_low(v_src2, v_src3);
+
+                v_int16x8 v_dst = v_pack(v_round(v_src0), v_round(v_src1));
+                v_store(dst + x, v_dst);
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct Cvt_SIMD<double, int>
+{
+    int operator() (const double * src, int * dst, int width) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_src0 = v_cvt_f32(v_load(src + x));
+                v_float32x4 v_src1 = v_cvt_f32(v_load(src + x + cWidth));
+
+                v_store(dst + x, v_round(v_combine_low(v_src0, v_src1)));
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct Cvt_SIMD<double, float>
+{
+    int operator() (const double * src, float * dst, int width) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_src0 = v_cvt_f32(v_load(src + x));
+                v_float32x4 v_src1 = v_cvt_f32(v_load(src + x + cWidth));
+
+                v_store(dst + x, v_combine_low(v_src0, v_src1));
+            }
+        }
+        return x;
+    }
+};
+
+// to double
+
+template <>
+struct Cvt_SIMD<uchar, double>
+{
+    int operator() (const uchar* src, double* dst, int width) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_uint16x8 v_src = v_load_expand(src + x);
+                v_uint32x4 v_src1, v_src2;
+                v_expand(v_src, v_src1, v_src2);
+                v_store(dst + x, v_cvt_f64(v_reinterpret_as_s32(v_src1)));
+                v_store(dst + x + cWidth, v_cvt_f64_high(v_reinterpret_as_s32(v_src1)));
+                v_store(dst + x + cWidth * 2, v_cvt_f64(v_reinterpret_as_s32(v_src2)));
+                v_store(dst + x + cWidth * 3, v_cvt_f64_high(v_reinterpret_as_s32(v_src2)));
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct Cvt_SIMD<schar, double>
+{
+    int operator() (const schar* src, double* dst, int width) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 4; x += cWidth * 4)
+            {
+                v_int16x8 v_src = v_load_expand(src + x);
+                v_int32x4 v_src1, v_src2;
+                v_expand(v_src, v_src1, v_src2);
+                v_store(dst + x, v_cvt_f64(v_src1));
+                v_store(dst + x + cWidth, v_cvt_f64_high(v_src1));
+                v_store(dst + x + cWidth * 2, v_cvt_f64(v_src2));
+                v_store(dst + x + cWidth * 3, v_cvt_f64_high(v_src2));
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct Cvt_SIMD<ushort, double>
+{
+    int operator() (const ushort* src, double* dst, int width) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_uint32x4 v_src = v_load_expand(src + x);
+
+                v_store(dst + x, v_cvt_f64(v_reinterpret_as_s32(v_src)));
+                v_store(dst + x + cWidth, v_cvt_f64_high(v_reinterpret_as_s32(v_src)));
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct Cvt_SIMD<short, double>
+{
+    int operator() (const short* src, double* dst, int width) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int32x4 v_src = v_load_expand(src + x);
+
+                v_store(dst + x, v_cvt_f64(v_src));
+                v_store(dst + x + cWidth, v_cvt_f64_high(v_src));
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct Cvt_SIMD<int, double>
+{
+    int operator() (const int* src, double* dst, int width) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_int32x4 v_src = v_load(src + x);
+
+                v_store(dst + x, v_cvt_f64(v_src));
+                v_store(dst + x + cWidth, v_cvt_f64_high(v_src));
+            }
+        }
+        return x;
+    }
+};
+
+template <>
+struct Cvt_SIMD<float, double>
+{
+    int operator() (const float* src, double* dst, int width) const
+    {
+        int x = 0;
+        if (hasSIMD128())
+        {
+            int cWidth = v_float64x2::nlanes;
+            for (; x <= width - cWidth * 2; x += cWidth * 2)
+            {
+                v_float32x4 v_src = v_load(src + x);
+
+                v_store(dst + x, v_cvt_f64(v_src));
+                v_store(dst + x + cWidth, v_cvt_f64_high(v_src));
+            }
+        }
+        return x;
+    }
+};
+#endif // CV_SIMD128_64F
+#endif // CV_SIMD128
 
 // template for FP16 HW conversion function
 template<typename T, typename DT> static void
-cvtScaleHalf_( const T* src, size_t sstep, DT* dst, size_t dstep, Size size)
+cvtScaleHalf_( const T* src, size_t sstep, DT* dst, size_t dstep, Size size);
+
+template<> void
+cvtScaleHalf_<float, short>( const float* src, size_t sstep, short* dst, size_t dstep, Size size )
 {
+    CV_CPU_CALL_FP16(cvtScaleHalf_SIMD32f16f, (src, sstep, dst, dstep, size));
+
+#if !defined(CV_CPU_COMPILE_FP16)
     sstep /= sizeof(src[0]);
     dstep /= sizeof(dst[0]);
 
     for( ; size.height--; src += sstep, dst += dstep )
     {
-        int x = 0;
-
-        for ( ; x < size.width; x++ )
+        for ( int x = 0; x < size.width; x++ )
         {
+            dst[x] = convertFp16SW(src[x]);
         }
     }
+#endif
 }
 
 template<> void
-cvtScaleHalf_<float, short>( const float* src, size_t sstep, short* dst, size_t dstep, Size size)
+cvtScaleHalf_<short, float>( const short* src, size_t sstep, float* dst, size_t dstep, Size size )
 {
+    CV_CPU_CALL_FP16(cvtScaleHalf_SIMD16f32f, (src, sstep, dst, dstep, size));
+
+#if !defined(CV_CPU_COMPILE_FP16)
     sstep /= sizeof(src[0]);
     dstep /= sizeof(dst[0]);
 
-    if( checkHardwareSupport(CV_CPU_FP16) )
+    for( ; size.height--; src += sstep, dst += dstep )
     {
-        for( ; size.height--; src += sstep, dst += dstep )
+        for ( int x = 0; x < size.width; x++ )
         {
-            int x = 0;
-
-            if ( ( (intptr_t)dst & 0xf ) == 0 && ( (intptr_t)src & 0xf ) == 0 )
-            {
-#if CV_FP16
-                for ( ; x <= size.width - 4; x += 4)
-                {
-#if defined(__x86_64__) || defined(_M_X64) || defined(_M_IX86) || defined(i386)
-                    __m128 v_src = _mm_load_ps(src + x);
-
-                    __m128i v_dst = _mm_cvtps_ph(v_src, 0);
-
-                    _mm_storel_epi64((__m128i *)(dst + x), v_dst);
-#elif defined __GNUC__ && (defined __arm__ || defined __aarch64__)
-                    float32x4_t v_src = *(float32x4_t*)(src + x);
-
-                    float16x4_t v_dst = vcvt_f16_f32(v_src);
-
-                    *(float16x4_t*)(dst + x) = v_dst;
-#else
-#error "Configuration error"
-#endif
-                }
-#endif
-            }
-            for ( ; x < size.width; x++ )
-            {
-                dst[x] = convertFp16SW(src[x]);
-            }
+            dst[x] = convertFp16SW(src[x]);
         }
     }
-    else
-    {
-        for( ; size.height--; src += sstep, dst += dstep )
-        {
-            int x = 0;
-            for ( ; x < size.width; x++ )
-            {
-                dst[x] = convertFp16SW(src[x]);
-            }
-        }
-    }
+#endif
 }
 
-template<> void
-cvtScaleHalf_<short, float>( const short* src, size_t sstep, float* dst, size_t dstep, Size size)
+#ifdef HAVE_OPENVX
+
+template<typename T, typename DT>
+static bool _openvx_cvt(const T* src, size_t sstep,
+                        DT* dst, size_t dstep, Size continuousSize)
 {
-    sstep /= sizeof(src[0]);
-    dstep /= sizeof(dst[0]);
+    using namespace ivx;
 
-    if( checkHardwareSupport(CV_CPU_FP16) )
+    if(!(continuousSize.width > 0 && continuousSize.height > 0))
     {
-        for( ; size.height--; src += sstep, dst += dstep )
+        return true;
+    }
+
+    //.height is for number of continuous pieces
+    //.width  is for length of one piece
+    Size imgSize = continuousSize;
+    if(continuousSize.height == 1)
+    {
+        if(sstep / sizeof(T) == dstep / sizeof(DT) && sstep / sizeof(T) > 0 &&
+           continuousSize.width % (sstep / sizeof(T)) == 0)
         {
-            int x = 0;
-
-            if ( ( (intptr_t)dst & 0xf ) == 0 && ( (intptr_t)src & 0xf ) == 0 && checkHardwareSupport(CV_CPU_FP16) )
-            {
-#if CV_FP16
-                for ( ; x <= size.width - 4; x += 4)
-                {
-#if defined(__x86_64__) || defined(_M_X64) || defined(_M_IX86) || defined(i386)
-                    __m128i v_src = _mm_loadl_epi64((__m128i*)(src+x));
-
-                    __m128 v_dst = _mm_cvtph_ps(v_src);
-
-                    _mm_store_ps((dst + x), v_dst);
-#elif defined __GNUC__ && (defined __arm__ || defined __aarch64__)
-                    float16x4_t v_src = *(float16x4_t*)(src + x);
-
-                    float32x4_t v_dst = vcvt_f32_f16(v_src);
-
-                    *(float32x4_t*)(dst + x) = v_dst;
-#else
-#error "Configuration error"
-#endif
-                }
-#endif
-            }
-            for ( ; x < size.width; x++ )
-            {
-                dst[x] = convertFp16SW(src[x]);
-            }
+            //continuous n-lines image
+            imgSize.width  = sstep / sizeof(T);
+            imgSize.height = continuousSize.width / (sstep / sizeof(T));
+        }
+        else
+        {
+            //1-row image with possibly incorrect step
+            sstep = continuousSize.width * sizeof(T);
+            dstep = continuousSize.width * sizeof(DT);
         }
     }
-    else
+
+    int srcType = DataType<T>::type, dstType = DataType<DT>::type;
+
+    if (ovx::skipSmallImages<VX_KERNEL_CONVERTDEPTH>(imgSize.width, imgSize.height))
+        return false;
+
+    try
     {
-        for( ; size.height--; src += sstep, dst += dstep )
+        Context context = ovx::getOpenVXContext();
+
+        // Other conversions are marked as "experimental"
+        if(context.vendorID() == VX_ID_KHRONOS &&
+           !(srcType == CV_8U  && dstType == CV_16S) &&
+           !(srcType == CV_16S && dstType == CV_8U))
         {
-            int x = 0;
-            for ( ; x < size.width; x++ )
-            {
-                dst[x] = convertFp16SW(src[x]);
-            }
+            return false;
         }
+
+        Image srcImage = Image::createFromHandle(context, Image::matTypeToFormat(srcType),
+                                                 Image::createAddressing(imgSize.width, imgSize.height,
+                                                                         (vx_uint32)sizeof(T), (vx_uint32)sstep),
+                                                 (void*)src);
+        Image dstImage = Image::createFromHandle(context, Image::matTypeToFormat(dstType),
+                                                 Image::createAddressing(imgSize.width, imgSize.height,
+                                                                         (vx_uint32)sizeof(DT), (vx_uint32)dstep),
+                                                 (void*)dst);
+
+        IVX_CHECK_STATUS(vxuConvertDepth(context, srcImage, dstImage, VX_CONVERT_POLICY_SATURATE, 0));
+
+#ifdef VX_VERSION_1_1
+        //we should take user memory back before release
+        //(it's not done automatically according to standard)
+        srcImage.swapHandle(); dstImage.swapHandle();
+#endif
     }
+    catch (RuntimeError & e)
+    {
+        VX_DbgThrow(e.what());
+    }
+    catch (WrapperError & e)
+    {
+        VX_DbgThrow(e.what());
+    }
+
+    return true;
 }
+
+template<typename T, typename DT>
+static bool openvx_cvt(const T* src, size_t sstep,
+                       DT* dst, size_t dstep, Size size)
+{
+    (void)src; (void)sstep; (void)dst; (void)dstep; (void)size;
+    return false;
+}
+
+#define DEFINE_OVX_CVT_SPECIALIZATION(T, DT) \
+template<>                                                                    \
+bool openvx_cvt(const T *src, size_t sstep, DT *dst, size_t dstep, Size size) \
+{                                                                             \
+    return _openvx_cvt<T, DT>(src, sstep, dst, dstep, size);                  \
+}
+
+DEFINE_OVX_CVT_SPECIALIZATION(uchar, ushort)
+DEFINE_OVX_CVT_SPECIALIZATION(uchar, short)
+DEFINE_OVX_CVT_SPECIALIZATION(uchar, int)
+DEFINE_OVX_CVT_SPECIALIZATION(ushort, uchar)
+DEFINE_OVX_CVT_SPECIALIZATION(ushort, int)
+DEFINE_OVX_CVT_SPECIALIZATION(short, uchar)
+DEFINE_OVX_CVT_SPECIALIZATION(short, int)
+DEFINE_OVX_CVT_SPECIALIZATION(int, uchar)
+DEFINE_OVX_CVT_SPECIALIZATION(int, ushort)
+DEFINE_OVX_CVT_SPECIALIZATION(int, short)
+
+#endif
 
 template<typename T, typename DT> static void
 cvt_( const T* src, size_t sstep,
       DT* dst, size_t dstep, Size size )
 {
+    CV_OVX_RUN(
+        true,
+        openvx_cvt(src, sstep, dst, dstep, size)
+    )
+
     sstep /= sizeof(src[0]);
     dstep /= sizeof(dst[0]);
     Cvt_SIMD<T, DT> vop;
@@ -4698,48 +3595,6 @@ cvt_( const T* src, size_t sstep,
     }
 }
 
-//vz optimized template specialization, test Core_ConvertScale/ElemWiseTest
-template<>  void
-cvt_<float, short>( const float* src, size_t sstep,
-     short* dst, size_t dstep, Size size )
-{
-    sstep /= sizeof(src[0]);
-    dstep /= sizeof(dst[0]);
-
-    for( ; size.height--; src += sstep, dst += dstep )
-    {
-        int x = 0;
-        #if   CV_SSE2
-        if(USE_SSE2)
-        {
-            for( ; x <= size.width - 8; x += 8 )
-            {
-                __m128 src128 = _mm_loadu_ps (src + x);
-                __m128i src_int128 = _mm_cvtps_epi32 (src128);
-
-                src128 = _mm_loadu_ps (src + x + 4);
-                __m128i src1_int128 = _mm_cvtps_epi32 (src128);
-
-                src1_int128 = _mm_packs_epi32(src_int128, src1_int128);
-                _mm_storeu_si128((__m128i*)(dst + x),src1_int128);
-            }
-        }
-        #elif CV_NEON
-        for( ; x <= size.width - 8; x += 8 )
-        {
-            float32x4_t v_src1 = vld1q_f32(src + x), v_src2 = vld1q_f32(src + x + 4);
-            int16x8_t v_dst = vcombine_s16(vqmovn_s32(cv_vrndq_s32_f32(v_src1)),
-                                           vqmovn_s32(cv_vrndq_s32_f32(v_src2)));
-            vst1q_s16(dst + x, v_dst);
-        }
-        #endif
-        for( ; x < size.width; x++ )
-            dst[x] = saturate_cast<short>(src[x]);
-    }
-
-}
-
-
 template<typename T> static void
 cpy_( const T* src, size_t sstep, T* dst, size_t dstep, Size size )
 {
@@ -4758,11 +3613,12 @@ static void cvtScaleAbs##suffix( const stype* src, size_t sstep, const uchar*, s
 }
 
 #define DEF_CVT_SCALE_FP16_FUNC(suffix, stype, dtype) \
-static void cvtScaleHalf##suffix( const stype* src, size_t sstep, const uchar*, size_t, \
-dtype* dst, size_t dstep, Size size, double*) \
+static void cvtScaleHalf##suffix( const stype* src, size_t sstep, \
+dtype* dst, size_t dstep, Size size) \
 { \
-    cvtScaleHalf##_<stype,dtype>(src, sstep, dst, dstep, size); \
+    cvtScaleHalf_<stype,dtype>(src, sstep, dst, dstep, size); \
 }
+
 
 #define DEF_CVT_SCALE_FUNC(suffix, stype, dtype, wtype) \
 static void cvtScale##suffix( const stype* src, size_t sstep, const uchar*, size_t, \
@@ -4776,7 +3632,7 @@ dtype* dst, size_t dstep, Size size, double* scale) \
 static void cvt##suffix( const stype* src, size_t sstep, const uchar*, size_t, \
                          dtype* dst, size_t dstep, Size size, double*) \
 { \
-    CV_IPP_RUN(src && dst, ippiConvert_##ippFavor(src, (int)sstep, dst, (int)dstep, ippiSize(size.width, size.height)) >= 0)\
+    CV_IPP_RUN(src && dst, CV_INSTRUMENT_FUN_IPP(ippiConvert_##ippFavor, src, (int)sstep, dst, (int)dstep, ippiSize(size.width, size.height)) >= 0) \
     cvt_(src, sstep, dst, dstep, size); \
 }
 
@@ -4784,7 +3640,7 @@ static void cvt##suffix( const stype* src, size_t sstep, const uchar*, size_t, \
 static void cvt##suffix( const stype* src, size_t sstep, const uchar*, size_t, \
                          dtype* dst, size_t dstep, Size size, double*) \
 { \
-    CV_IPP_RUN(src && dst, ippiConvert_##ippFavor(src, (int)sstep, dst, (int)dstep, ippiSize(size.width, size.height), ippRndFinancial, 0) >= 0)\
+    CV_IPP_RUN(src && dst, CV_INSTRUMENT_FUN_IPP(ippiConvert_##ippFavor, src, (int)sstep, dst, (int)dstep, ippiSize(size.width, size.height), ippRndFinancial, 0) >= 0) \
     cvt_(src, sstep, dst, dstep, size); \
 }
 #else
@@ -4944,12 +3800,16 @@ static BinaryFunc getCvtScaleAbsFunc(int depth)
     return cvtScaleAbsTab[depth];
 }
 
-BinaryFunc getConvertFuncFp16(int ddepth)
+typedef void (*UnaryFunc)(const uchar* src1, size_t step1,
+                       uchar* dst, size_t step, Size sz,
+                       void*);
+
+static UnaryFunc getConvertFuncFp16(int ddepth)
 {
-    static BinaryFunc cvtTab[] =
+    static UnaryFunc cvtTab[] =
     {
         0, 0, 0,
-        (BinaryFunc)(cvtScaleHalf32f16f), 0, (BinaryFunc)(cvtScaleHalf16f32f),
+        (UnaryFunc)(cvtScaleHalf32f16f), 0, (UnaryFunc)(cvtScaleHalf16f32f),
         0, 0,
     };
     return cvtTab[CV_MAT_DEPTH(ddepth)];
@@ -5105,12 +3965,42 @@ static bool ocl_convertScaleAbs( InputArray _src, OutputArray _dst, double alpha
     return k.run(2, globalsize, NULL, false);
 }
 
+static bool ocl_convertFp16( InputArray _src, OutputArray _dst, int ddepth )
+{
+    int type = _src.type(), cn = CV_MAT_CN(type);
+
+    _dst.createSameSize( _src, CV_MAKETYPE(ddepth, cn) );
+    int kercn = 1;
+    int rowsPerWI = 1;
+    String build_opt = format("-D HALF_SUPPORT -D dstT=%s -D srcT=%s -D rowsPerWI=%d%s",
+                           ddepth == CV_16S ? "half" : "float",
+                           ddepth == CV_16S ? "float" : "half",
+                           rowsPerWI,
+                           ddepth == CV_16S ? " -D FLOAT_TO_HALF " : "");
+    ocl::Kernel k("convertFp16", ocl::core::halfconvert_oclsrc, build_opt);
+    if (k.empty())
+        return false;
+
+    UMat src = _src.getUMat();
+    UMat dst = _dst.getUMat();
+
+    ocl::KernelArg srcarg = ocl::KernelArg::ReadOnlyNoSize(src),
+            dstarg = ocl::KernelArg::WriteOnly(dst, cn, kercn);
+
+    k.args(srcarg, dstarg);
+
+    size_t globalsize[2] = { (size_t)src.cols * cn / kercn, ((size_t)src.rows + rowsPerWI - 1) / rowsPerWI };
+    return k.run(2, globalsize, NULL, false);
+}
+
 #endif
 
 }
 
 void cv::convertScaleAbs( InputArray _src, OutputArray _dst, double alpha, double beta )
 {
+    CV_INSTRUMENT_REGION()
+
     CV_OCL_RUN(_src.dims() <= 2 && _dst.isUMat(),
                ocl_convertScaleAbs(_src, _dst, alpha, beta))
 
@@ -5141,10 +4031,10 @@ void cv::convertScaleAbs( InputArray _src, OutputArray _dst, double alpha, doubl
 
 void cv::convertFp16( InputArray _src, OutputArray _dst)
 {
-    Mat src = _src.getMat();
-    int ddepth = 0;
+    CV_INSTRUMENT_REGION()
 
-    switch( src.depth() )
+    int ddepth = 0;
+    switch( _src.depth() )
     {
     case CV_32F:
         ddepth = CV_16S;
@@ -5153,20 +4043,26 @@ void cv::convertFp16( InputArray _src, OutputArray _dst)
         ddepth = CV_32F;
         break;
     default:
+        CV_Error(Error::StsUnsupportedFormat, "Unsupported input depth");
         return;
     }
+
+    CV_OCL_RUN(_src.dims() <= 2 && _dst.isUMat(),
+               ocl_convertFp16(_src, _dst, ddepth))
+
+    Mat src = _src.getMat();
 
     int type = CV_MAKETYPE(ddepth, src.channels());
     _dst.create( src.dims, src.size, type );
     Mat dst = _dst.getMat();
-    BinaryFunc func = getConvertFuncFp16(ddepth);
+    UnaryFunc func = getConvertFuncFp16(ddepth);
     int cn = src.channels();
     CV_Assert( func != 0 );
 
     if( src.dims <= 2 )
     {
         Size sz = getContinuousSize(src, dst, cn);
-        func( src.data, src.step, 0, 0, dst.data, dst.step, sz, 0);
+        func( src.data, src.step, dst.data, dst.step, sz, 0);
     }
     else
     {
@@ -5176,12 +4072,80 @@ void cv::convertFp16( InputArray _src, OutputArray _dst)
         Size sz((int)(it.size*cn), 1);
 
         for( size_t i = 0; i < it.nplanes; i++, ++it )
-            func(ptrs[0], 1, 0, 0, ptrs[1], 1, sz, 0);
+            func(ptrs[0], 1, ptrs[1], 1, sz, 0);
     }
 }
 
+#ifdef HAVE_IPP
+namespace cv
+{
+static bool ipp_convertTo(Mat &src, Mat &dst, double alpha, double beta)
+{
+#ifdef HAVE_IPP_IW
+    CV_INSTRUMENT_REGION_IPP()
+
+    IppDataType srcDepth = ippiGetDataType(src.depth());
+    IppDataType dstDepth = ippiGetDataType(dst.depth());
+    int         channels = src.channels();
+
+    if(src.dims == 0)
+        return false;
+
+    ::ipp::IwiImage iwSrc;
+    ::ipp::IwiImage iwDst;
+
+    try
+    {
+        IppHintAlgorithm mode = ippAlgHintFast;
+        if(dstDepth == ipp64f ||
+            (dstDepth == ipp32f && (srcDepth == ipp32s || srcDepth == ipp64f)) ||
+            (dstDepth == ipp32s && (srcDepth == ipp32s || srcDepth == ipp64f)))
+            mode = ippAlgHintAccurate;
+
+        if(src.dims <= 2)
+        {
+            Size sz = getContinuousSize(src, dst, channels);
+
+            iwSrc.Init(ippiSize(sz), srcDepth, 1, NULL, (void*)src.ptr(), src.step);
+            iwDst.Init(ippiSize(sz), dstDepth, 1, NULL, (void*)dst.ptr(), dst.step);
+
+            CV_INSTRUMENT_FUN_IPP(::ipp::iwiScale, iwSrc, iwDst, alpha, beta, ::ipp::IwiScaleParams(mode));
+        }
+        else
+        {
+            const Mat *arrays[] = {&src, &dst, NULL};
+            uchar     *ptrs[2]  = {NULL};
+            NAryMatIterator it(arrays, ptrs);
+
+            iwSrc.Init(ippiSize(it.size, 1), srcDepth, channels);
+            iwDst.Init(ippiSize(it.size, 1), dstDepth, channels);
+
+            for(size_t i = 0; i < it.nplanes; i++, ++it)
+            {
+                iwSrc.m_ptr  = ptrs[0];
+                iwDst.m_ptr  = ptrs[1];
+
+                CV_INSTRUMENT_FUN_IPP(::ipp::iwiScale, iwSrc, iwDst, alpha, beta, ::ipp::IwiScaleParams(mode));
+            }
+        }
+    }
+    catch (::ipp::IwException)
+    {
+        return false;
+    }
+    return true;
+#else
+    CV_UNUSED(src); CV_UNUSED(dst); CV_UNUSED(alpha); CV_UNUSED(beta);
+    return false;
+#endif
+}
+}
+#endif
+
 void cv::Mat::convertTo(OutputArray _dst, int _type, double alpha, double beta) const
 {
+    CV_INSTRUMENT_REGION()
+
     bool noScale = fabs(alpha-1) < DBL_EPSILON && fabs(beta) < DBL_EPSILON;
 
     if( _type < 0 )
@@ -5197,6 +4161,13 @@ void cv::Mat::convertTo(OutputArray _dst, int _type, double alpha, double beta) 
     }
 
     Mat src = *this;
+    if( dims <= 2 )
+        _dst.create( size(), _type );
+    else
+        _dst.create( dims, size, _type );
+    Mat dst = _dst.getMat();
+
+    CV_IPP_RUN_FAST(ipp_convertTo(src, dst, alpha, beta ));
 
     BinaryFunc func = noScale ? getConvertFunc(sdepth, ddepth) : getConvertScaleFunc(sdepth, ddepth);
     double scale[] = {alpha, beta};
@@ -5205,15 +4176,12 @@ void cv::Mat::convertTo(OutputArray _dst, int _type, double alpha, double beta) 
 
     if( dims <= 2 )
     {
-        _dst.create( size(), _type );
-        Mat dst = _dst.getMat();
         Size sz = getContinuousSize(src, dst, cn);
+
         func( src.data, src.step, 0, 0, dst.data, dst.step, sz, scale );
     }
     else
     {
-        _dst.create( dims, size, _type );
-        Mat dst = _dst.getMat();
         const Mat* arrays[] = {&src, &dst, 0};
         uchar* ptrs[2];
         NAryMatIterator it(arrays, ptrs);
@@ -5316,10 +4284,43 @@ static bool ocl_LUT(InputArray _src, InputArray _lut, OutputArray _dst)
 
 #endif
 
+#ifdef HAVE_OPENVX
+static bool openvx_LUT(Mat src, Mat dst, Mat _lut)
+{
+    if (src.type() != CV_8UC1 || dst.type() != src.type() || _lut.type() != src.type() || !_lut.isContinuous())
+        return false;
+
+    try
+    {
+        ivx::Context ctx = ovx::getOpenVXContext();
+
+        ivx::Image
+            ia = ivx::Image::createFromHandle(ctx, VX_DF_IMAGE_U8,
+                ivx::Image::createAddressing(src.cols, src.rows, 1, (vx_int32)(src.step)), src.data),
+            ib = ivx::Image::createFromHandle(ctx, VX_DF_IMAGE_U8,
+                ivx::Image::createAddressing(dst.cols, dst.rows, 1, (vx_int32)(dst.step)), dst.data);
+
+        ivx::LUT lut = ivx::LUT::create(ctx);
+        lut.copyFrom(_lut);
+        ivx::IVX_CHECK_STATUS(vxuTableLookup(ctx, ia, lut, ib));
+    }
+    catch (ivx::RuntimeError & e)
+    {
+        VX_DbgThrow(e.what());
+    }
+    catch (ivx::WrapperError & e)
+    {
+        VX_DbgThrow(e.what());
+    }
+
+    return true;
+}
+#endif
+
 #if defined(HAVE_IPP)
+#if !IPP_DISABLE_PERF_LUT // there are no performance benefits (PR #2653)
 namespace ipp {
 
-#if IPP_DISABLE_BLOCK // there are no performance benefits (PR #2653)
 class IppLUTParallelBody_LUTC1 : public ParallelLoopBody
 {
 public:
@@ -5328,25 +4329,17 @@ public:
     const Mat& lut_;
     Mat& dst_;
 
-    typedef IppStatus (*IppFn)(const Ipp8u* pSrc, int srcStep, void* pDst, int dstStep,
-                          IppiSize roiSize, const void* pTable, int nBitSize);
-    IppFn fn;
-
     int width;
+    size_t elemSize1;
 
     IppLUTParallelBody_LUTC1(const Mat& src, const Mat& lut, Mat& dst, bool* _ok)
         : ok(_ok), src_(src), lut_(lut), dst_(dst)
     {
         width = dst.cols * dst.channels();
+        elemSize1 = CV_ELEM_SIZE1(dst.depth());
 
-        size_t elemSize1 = CV_ELEM_SIZE1(dst.depth());
-
-        fn =
-                elemSize1 == 1 ? (IppFn)ippiLUTPalette_8u_C1R :
-                elemSize1 == 4 ? (IppFn)ippiLUTPalette_8u32u_C1R :
-                NULL;
-
-        *ok = (fn != NULL);
+        CV_DbgAssert(elemSize1 == 1 || elemSize1 == 4);
+        *ok = true;
     }
 
     void operator()( const cv::Range& range ) const
@@ -5362,19 +4355,22 @@ public:
 
         IppiSize sz = { width, dst.rows };
 
-        CV_DbgAssert(fn != NULL);
-        if (fn(src.data, (int)src.step[0], dst.data, (int)dst.step[0], sz, lut_.data, 8) < 0)
+        if (elemSize1 == 1)
         {
-            setIppErrorStatus();
-            *ok = false;
+            if (CV_INSTRUMENT_FUN_IPP(ippiLUTPalette_8u_C1R, (const Ipp8u*)src.data, (int)src.step[0], dst.data, (int)dst.step[0], sz, lut_.data, 8) >= 0)
+                return;
         }
-        CV_IMPL_ADD(CV_IMPL_IPP|CV_IMPL_MT);
+        else if (elemSize1 == 4)
+        {
+            if (CV_INSTRUMENT_FUN_IPP(ippiLUTPalette_8u32u_C1R, (const Ipp8u*)src.data, (int)src.step[0], (Ipp32u*)dst.data, (int)dst.step[0], sz, (Ipp32u*)lut_.data, 8) >= 0)
+                return;
+        }
+        *ok = false;
     }
 private:
     IppLUTParallelBody_LUTC1(const IppLUTParallelBody_LUTC1&);
     IppLUTParallelBody_LUTC1& operator=(const IppLUTParallelBody_LUTC1&);
 };
-#endif
 
 class IppLUTParallelBody_LUTCN : public ParallelLoopBody
 {
@@ -5397,7 +4393,7 @@ public:
 
         size_t elemSize1 = dst.elemSize1();
         CV_DbgAssert(elemSize1 == 1);
-        lutBuffer = (uchar*)ippMalloc(256 * (int)elemSize1 * 4);
+        lutBuffer = (uchar*)CV_IPP_MALLOC(256 * (int)elemSize1 * 4);
         lutTable[0] = lutBuffer + 0;
         lutTable[1] = lutBuffer + 1 * 256 * elemSize1;
         lutTable[2] = lutBuffer + 2 * 256 * elemSize1;
@@ -5406,23 +4402,15 @@ public:
         CV_DbgAssert(lutcn == 3 || lutcn == 4);
         if (lutcn == 3)
         {
-            IppStatus status = ippiCopy_8u_C3P3R(lut.ptr(), (int)lut.step[0], lutTable, (int)lut.step[0], sz256);
+            IppStatus status = CV_INSTRUMENT_FUN_IPP(ippiCopy_8u_C3P3R, lut.ptr(), (int)lut.step[0], lutTable, (int)lut.step[0], sz256);
             if (status < 0)
-            {
-                setIppErrorStatus();
                 return;
-            }
-            CV_IMPL_ADD(CV_IMPL_IPP);
         }
         else if (lutcn == 4)
         {
-            IppStatus status = ippiCopy_8u_C4P4R(lut.ptr(), (int)lut.step[0], lutTable, (int)lut.step[0], sz256);
+            IppStatus status = CV_INSTRUMENT_FUN_IPP(ippiCopy_8u_C4P4R, lut.ptr(), (int)lut.step[0], lutTable, (int)lut.step[0], sz256);
             if (status < 0)
-            {
-                setIppErrorStatus();
                 return;
-            }
-            CV_IMPL_ADD(CV_IMPL_IPP);
         }
 
         *ok = true;
@@ -5449,25 +4437,14 @@ public:
 
         if (lutcn == 3)
         {
-            if (ippiLUTPalette_8u_C3R(
-                    src.ptr(), (int)src.step[0], dst.ptr(), (int)dst.step[0],
-                    ippiSize(dst.size()), lutTable, 8) >= 0)
-            {
-                CV_IMPL_ADD(CV_IMPL_IPP|CV_IMPL_MT);
+            if (CV_INSTRUMENT_FUN_IPP(ippiLUTPalette_8u_C3R, src.ptr(), (int)src.step[0], dst.ptr(), (int)dst.step[0], ippiSize(dst.size()), lutTable, 8) >= 0)
                 return;
-            }
         }
         else if (lutcn == 4)
         {
-            if (ippiLUTPalette_8u_C4R(
-                    src.ptr(), (int)src.step[0], dst.ptr(), (int)dst.step[0],
-                    ippiSize(dst.size()), lutTable, 8) >= 0)
-            {
-                CV_IMPL_ADD(CV_IMPL_IPP|CV_IMPL_MT);
+            if (CV_INSTRUMENT_FUN_IPP(ippiLUTPalette_8u_C4R, src.ptr(), (int)src.step[0], dst.ptr(), (int)dst.step[0], ippiSize(dst.size()), lutTable, 8) >= 0)
                 return;
-            }
         }
-        setIppErrorStatus();
         *ok = false;
     }
 private:
@@ -5478,6 +4455,8 @@ private:
 
 static bool ipp_lut(Mat &src, Mat &lut, Mat &dst)
 {
+    CV_INSTRUMENT_REGION_IPP()
+
     int lutcn = lut.channels();
 
     if(src.dims > 2)
@@ -5487,15 +4466,13 @@ static bool ipp_lut(Mat &src, Mat &lut, Mat &dst)
     Ptr<ParallelLoopBody> body;
 
     size_t elemSize1 = CV_ELEM_SIZE1(dst.depth());
-#if IPP_DISABLE_BLOCK // there are no performance benefits (PR #2653)
+
     if (lutcn == 1)
     {
         ParallelLoopBody* p = new ipp::IppLUTParallelBody_LUTC1(src, lut, dst, &ok);
         body.reset(p);
     }
-    else
-#endif
-    if ((lutcn == 3 || lutcn == 4) && elemSize1 == 1)
+    else if ((lutcn == 3 || lutcn == 4) && elemSize1 == 1)
     {
         ParallelLoopBody* p = new ipp::IppLUTParallelBody_LUTCN(src, lut, dst, &ok);
         body.reset(p);
@@ -5514,6 +4491,8 @@ static bool ipp_lut(Mat &src, Mat &lut, Mat &dst)
 
     return false;
 }
+
+#endif
 #endif // IPP
 
 class LUTParallelBody : public ParallelLoopBody
@@ -5563,6 +4542,8 @@ private:
 
 void cv::LUT( InputArray _src, InputArray _lut, OutputArray _dst )
 {
+    CV_INSTRUMENT_REGION()
+
     int cn = _src.channels(), depth = _src.depth();
     int lutcn = _lut.channels();
 
@@ -5577,7 +4558,12 @@ void cv::LUT( InputArray _src, InputArray _lut, OutputArray _dst )
     _dst.create(src.dims, src.size, CV_MAKETYPE(_lut.depth(), cn));
     Mat dst = _dst.getMat();
 
+    CV_OVX_RUN(!ovx::skipSmallImages<VX_KERNEL_TABLE_LOOKUP>(src.cols, src.rows),
+               openvx_LUT(src, dst, lut))
+
+#if !IPP_DISABLE_PERF_LUT
     CV_IPP_RUN(_src.dims() <= 2, ipp_lut(src, lut, dst));
+#endif
 
     if (_src.dims() <= 2)
     {
@@ -5710,12 +4696,14 @@ static bool ocl_normalize( InputArray _src, InputOutputArray _dst, InputArray _m
 void cv::normalize( InputArray _src, InputOutputArray _dst, double a, double b,
                     int norm_type, int rtype, InputArray _mask )
 {
+    CV_INSTRUMENT_REGION()
+
     double scale = 1, shift = 0;
     if( norm_type == CV_MINMAX )
     {
         double smin = 0, smax = 0;
         double dmin = MIN( a, b ), dmax = MAX( a, b );
-        minMaxLoc( _src, &smin, &smax, 0, 0, _mask );
+        minMaxIdx( _src, &smin, &smax, 0, 0, _mask );
         scale = (dmax - dmin)*(smax - smin > DBL_EPSILON ? 1./(smax - smin) : 0);
         shift = dmin - smin*scale;
     }

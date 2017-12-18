@@ -47,13 +47,13 @@
   Usefull to test in user programs
 */
 
-#ifndef __OPENCV_VERSION_HPP__
-#define __OPENCV_VERSION_HPP__
+#ifndef OPENCV_VERSION_HPP
+#define OPENCV_VERSION_HPP
 
 #define CV_VERSION_MAJOR    3
-#define CV_VERSION_MINOR    1
+#define CV_VERSION_MINOR    4
 #define CV_VERSION_REVISION 0
-#define CV_VERSION_STATUS   "-dev"
+#define CV_VERSION_STATUS   "-rc"
 
 #define CVAUX_STR_EXP(__A)  #__A
 #define CVAUX_STR(__A)      CVAUX_STR_EXP(__A)

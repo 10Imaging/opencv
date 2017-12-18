@@ -54,9 +54,6 @@ using std::tr1::make_tuple;
 namespace cvtest {
 namespace ocl {
 
-///////////// FarnebackOpticalFlow ////////////////////////
-CV_ENUM(farneFlagType, 0, OPTFLOW_FARNEBACK_GAUSSIAN)
-
 typedef tuple< int > PyrLKOpticalFlowParams;
 typedef TestBaseWithParam<PyrLKOpticalFlowParams> PyrLKOpticalFlowFixture;
 
@@ -82,6 +79,15 @@ OCL_PERF_TEST_P(PyrLKOpticalFlowFixture, PyrLKOpticalFlow,
 
     const PyrLKOpticalFlowParams params = GetParam();
     const int pointsCount = get<0>(params);
+
+    // SKIP unstable tests
+#ifdef __linux__
+    if (cvtest::skipUnstableTests && ocl::useOpenCL())
+    {
+         if (ocl::Device::getDefault().isIntel())
+             throw ::perf::TestBase::PerfSkipTestException();
+    }
+#endif
 
     vector<Point2f> pts;
     goodFeaturesToTrack(frame0, pts, pointsCount, 0.01, 0.0);

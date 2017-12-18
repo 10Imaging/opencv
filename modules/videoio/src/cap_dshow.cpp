@@ -41,7 +41,7 @@
 
 #include "precomp.hpp"
 
-#if (defined WIN32 || defined _WIN32) && defined HAVE_DSHOW
+#if defined _WIN32 && defined HAVE_DSHOW
 #include "cap_dshow.hpp"
 
 /*
@@ -108,55 +108,11 @@ Thanks to:
 #include <vector>
 
 //Include Directshow stuff here so we don't worry about needing all the h files.
-#if defined _MSC_VER && _MSC_VER >= 1500
-#  include "DShow.h"
-#  include "strmif.h"
-#  include "Aviriff.h"
-#  include "dvdmedia.h"
-#  include "bdaiface.h"
-#else
-#  ifdef _MSC_VER
-#  define __extension__
-   typedef BOOL WINBOOL;
-#endif
-
-#include "dshow/dshow.h"
-#include "dshow/dvdmedia.h"
-#include "dshow/bdatypes.h"
-
-interface IEnumPIDMap : public IUnknown
-{
-public:
-    virtual HRESULT STDMETHODCALLTYPE Next(
-        /* [in] */ ULONG cRequest,
-        /* [size_is][out][in] */ PID_MAP *pPIDMap,
-        /* [out] */ ULONG *pcReceived) = 0;
-
-    virtual HRESULT STDMETHODCALLTYPE Skip(
-        /* [in] */ ULONG cRecords) = 0;
-
-    virtual HRESULT STDMETHODCALLTYPE Reset( void) = 0;
-
-    virtual HRESULT STDMETHODCALLTYPE Clone(
-        /* [out] */ IEnumPIDMap **ppIEnumPIDMap) = 0;
-};
-
-interface IMPEG2PIDMap : public IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE MapPID(
-        /* [in] */ ULONG culPID,
-        /* [in] */ ULONG *pulPID,
-        /* [in] */ MEDIA_SAMPLE_CONTENT MediaSampleContent) = 0;
-
-    virtual HRESULT STDMETHODCALLTYPE UnmapPID(
-        /* [in] */ ULONG culPID,
-        /* [in] */ ULONG *pulPID) = 0;
-
-    virtual HRESULT STDMETHODCALLTYPE EnumPIDMap(
-        /* [out] */ IEnumPIDMap **pIEnumPIDMap) = 0;
-};
-
-#endif
+#include "DShow.h"
+#include "strmif.h"
+#include "Aviriff.h"
+#include "dvdmedia.h"
+#include "bdaiface.h"
 
 //for threading
 #include <process.h>
@@ -204,6 +160,7 @@ DEFINE_GUID(IID_ICreateDevEnum,0x29840822,0x5b84,0x11d0,0xbd,0x3b,0x00,0xa0,0xc9
 DEFINE_GUID(IID_IGraphBuilder,0x56a868a9,0x0ad4,0x11ce,0xb0,0x3a,0x00,0x20,0xaf,0x0b,0xa7,0x70);
 DEFINE_GUID(IID_IMPEG2PIDMap,0xafb6c2a1,0x2c41,0x11d3,0x8a,0x60,0x00,0x00,0xf8,0x1e,0x0e,0x4a);
 DEFINE_GUID(IID_IMediaControl,0x56a868b1,0x0ad4,0x11ce,0xb0,0x3a,0x00,0x20,0xaf,0x0b,0xa7,0x70);
+DEFINE_GUID(IID_IMediaEventEx, 0x56a868c0,0x0ad4,0x11ce,0xb0,0x3a,0x00,0x20,0xaf,0x0b,0xa7,0x70);
 DEFINE_GUID(IID_IMediaFilter,0x56a86899,0x0ad4,0x11ce,0xb0,0x3a,0x00,0x20,0xaf,0x0b,0xa7,0x70);
 DEFINE_GUID(IID_ISampleGrabber,0x6b652fff,0x11fe,0x4fce,0x92,0xad,0x02,0x66,0xb5,0xd7,0xc7,0x8f);
 DEFINE_GUID(LOOK_UPSTREAM_ONLY,0xac798be0,0x98e3,0x11d1,0xb3,0xf1,0x00,0xaa,0x00,0x37,0x61,0xc5);
@@ -336,11 +293,17 @@ interface ISampleGrabber : public IUnknown
 #ifdef _DEBUG
 #include <strsafe.h>
 
-//change for verbose debug info
-static bool gs_verbose = true;
-
 static void DebugPrintOut(const char *format, ...)
 {
+    static int gs_verbose = -1;
+    if (gs_verbose < 0)
+    {
+        // Fetch initial debug state from environment - defaults to disabled
+        const char* s = getenv("OPENCV_DSHOW_DEBUG");
+        gs_verbose = s != NULL && atoi(s) != 0;
+    }
+
+
     if (gs_verbose)
     {
         va_list args;
@@ -486,9 +449,6 @@ class videoInput{
         videoInput();
         ~videoInput();
 
-        //turns off console messages - default is to print messages
-        static void setVerbose(bool _verbose);
-
         //Functions in rough order they should be used.
         static int listDevices(bool silent = false);
 
@@ -573,6 +533,8 @@ class videoInput{
         int getVideoPropertyFromCV(int cv_property);
         int getCameraPropertyFromCV(int cv_property);
 
+        bool isDeviceDisconnected(int deviceID);
+
     private:
         void setPhyCon(int deviceID, int conn);
         void setAttemptCaptureSize(int deviceID, int w, int h,GUID mediaType=MEDIASUBTYPE_RGB24);
@@ -605,9 +567,9 @@ class videoInput{
         GUID CAPTURE_MODE;
 
         //Extra video subtypes
-        GUID MEDIASUBTYPE_Y800;
-        GUID MEDIASUBTYPE_Y8;
-        GUID MEDIASUBTYPE_GREY;
+        // GUID MEDIASUBTYPE_Y800;
+        // GUID MEDIASUBTYPE_Y8;
+        // GUID MEDIASUBTYPE_GREY;
 
         videoDevice * VDList[VI_MAX_CAMERAS];
         GUID mediaSubtypes[VI_NUM_TYPES];
@@ -662,6 +624,9 @@ public:
         latestBufferLength  = 0;
 
         hEvent = CreateEvent(NULL, true, false, NULL);
+        pixels = 0;
+        ptrBuffer = 0;
+        numBytes = 0;
     }
 
 
@@ -795,6 +760,10 @@ videoDevice::videoDevice(){
      autoReconnect      = false;
      requestedFrameTime = -1;
 
+     pBuffer = 0;
+     pixels = 0;
+     formatType = 0;
+
      memset(wDeviceName, 0, sizeof(WCHAR) * 255);
      memset(nDeviceName, 0, sizeof(char) * 255);
 
@@ -874,14 +843,12 @@ void videoDevice::NukeDownstream(IBaseFilter *pBF){
 
 void videoDevice::destroyGraph(){
     HRESULT hr = 0;
-     //int FuncRetval=0;
-     //int NumFilters=0;
 
     int i = 0;
     while (hr == NOERROR)
     {
         IEnumFilters * pEnum = 0;
-        ULONG cFetched;
+        ULONG cFetched = 0;
 
         // We must get the enumerator again every time because removing a filter from the graph
         // invalidates the enumerator. We always get only the first filter from each enumerator.
@@ -914,9 +881,11 @@ void videoDevice::destroyGraph(){
             pFilter->Release();
             pFilter = NULL;
         }
-        else break;
         pEnum->Release();
         pEnum = NULL;
+
+        if (cFetched == 0)
+            break;
         i++;
     }
 
@@ -1057,15 +1026,18 @@ videoInput::videoInput(){
     callbackSetCount     = 0;
     bCallback            = true;
 
+    connection = PhysConn_Video_Composite;
+    CAPTURE_MODE = PIN_CATEGORY_PREVIEW;
+
     //setup a max no of device objects
     for(int i=0; i<VI_MAX_CAMERAS; i++)  VDList[i] = new videoDevice();
 
     DebugPrintOut("\n***** VIDEOINPUT LIBRARY - %2.04f - TFW07 *****\n\n",VI_VERSION);
 
     //added for the pixelink firewire camera
-     //MEDIASUBTYPE_Y800 = (GUID)FOURCCMap(FCC('Y800'));
-     //MEDIASUBTYPE_Y8   = (GUID)FOURCCMap(FCC('Y8'));
-     //MEDIASUBTYPE_GREY = (GUID)FOURCCMap(FCC('GREY'));
+    // MEDIASUBTYPE_Y800 = (GUID)FOURCCMap(FCC('Y800'));
+    // MEDIASUBTYPE_Y8   = (GUID)FOURCCMap(FCC('Y8'));
+    // MEDIASUBTYPE_GREY = (GUID)FOURCCMap(FCC('GREY'));
 
     //The video types we support
     //in order of preference
@@ -1115,20 +1087,6 @@ videoInput::videoInput(){
     formatTypes[VI_SECAM_K1]    = AnalogVideo_SECAM_K1;
     formatTypes[VI_SECAM_L]     = AnalogVideo_SECAM_L;
 
-}
-
-
-// ----------------------------------------------------------------------
-// static - set whether messages get printed to console or not
-//
-// ----------------------------------------------------------------------
-
-void videoInput::setVerbose(bool _verbose){
-#ifdef _DEBUG
-    gs_verbose = _verbose;
-#else
-    (void)_verbose; // Suppress 'unreferenced parameter' warning
-#endif
 }
 
 // ----------------------------------------------------------------------
@@ -2309,6 +2267,27 @@ int videoInput::getCameraPropertyFromCV(int cv_property){
     return -1;
 }
 
+bool videoInput::isDeviceDisconnected(int deviceNumber)
+{
+    if (!isDeviceSetup(deviceNumber)) return true;
+    long evCode;
+    LONG_PTR param1, param2;
+    bool disconnected = false;
+
+    while (S_OK == VDList[deviceNumber]->pMediaEvent->GetEvent(&evCode, &param1, &param2, 0))
+    {
+        DebugPrintOut("Event: Code: %#04x Params: %d, %d\n", evCode, param1, param2);
+
+        VDList[deviceNumber]->pMediaEvent->FreeEventParams(evCode, param1, param2);
+        if (evCode == EC_DEVICE_LOST)
+        {
+           DebugPrintOut("ERROR: Device disconnected\n");
+           disconnected = true;
+        }
+    }
+    return disconnected;
+}
+
 void videoInput::getCameraPropertyAsString(int prop, char * propertyAsString){
 
     char tmpStr[16];
@@ -2507,6 +2486,16 @@ int videoInput::start(int deviceID, videoDevice *VD){
     if (FAILED(hr))
     {
         DebugPrintOut("ERROR - Could not add the graph builder!\n");
+        stopDevice(deviceID);
+        return hr;
+    }
+
+    //MEDIA EVENT//
+    //Used to obtain event when capture device is disconnected
+    hr = VD->pGraph->QueryInterface(IID_IMediaEventEx, (void**)&VD->pMediaEvent);
+    if (FAILED(hr))
+    {
+        DebugPrintOut("ERROR - Could not create media event object\n");
         stopDevice(deviceID);
         return hr;
     }
@@ -3309,7 +3298,7 @@ bool VideoCapture_DShow::setProperty(int propIdx, double propVal)
 
 bool VideoCapture_DShow::grabFrame()
 {
-    return true;
+    return !g_VI.isDeviceDisconnected(m_index);
 }
 bool VideoCapture_DShow::retrieveFrame(int, OutputArray frame)
 {
