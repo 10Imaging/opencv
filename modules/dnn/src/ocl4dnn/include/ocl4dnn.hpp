@@ -215,6 +215,9 @@ class OCL4DNNConvSpatial
         bool createGEMMLikeConvKernel(int32_t blockWidth,
                                       int32_t blockHeight,
                                       int32_t blockDepth);
+        bool createDWConvKernel(int32_t blockWidth,
+                                int32_t blockHeight,
+                                int32_t blockDepth);
         void CreateSubBuffer(const UMat& buffer, UMat& sub_buffer,
                              int32_t offset, int32_t size, bool write_only);
         bool convolve(const UMat &bottom, UMat &top,
@@ -255,6 +258,12 @@ class OCL4DNNConvSpatial
                                  int lx, int ly, int lz,
                                  bool swizzle, bool nullLocal);
         void generateTunerItems(std::vector< cv::Ptr<tunerParam> > &tunerItems);
+        void generate_dwconv_tuneritems(std::vector< cv::Ptr<tunerParam> > &tunerItems,
+                                        int blockM, int blockK, int blockN);
+        void generate_gemmlike_tuneritems(std::vector< cv::Ptr<tunerParam> > &tunerItems,
+                                          int blockM, int blockK, int blockN);
+        void generate_idlf_tuneritems(std::vector< cv::Ptr<tunerParam> > &tunerItems,
+                                      int blockM, int blockK, int simd_size);
         void setFusionDefine(ocl4dnnFusedActiv_t fused_activ, bool fused_eltwise);
         void setFusionArg(ocl4dnnFusedActiv_t fused_activ, bool fused_eltwise, ocl::Kernel &kernel, cl_uint &argIdx);
 
@@ -282,6 +291,8 @@ class OCL4DNNConvSpatial
         int32_t M_;
 
         bool tuned_;
+        bool dwconv_;
+
         std::string key_, key_sanitized_;
         std::string short_key_;
         std::string kernel_name_;
