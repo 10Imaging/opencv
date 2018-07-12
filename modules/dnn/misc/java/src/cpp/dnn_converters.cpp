@@ -4,6 +4,7 @@
 
 // Author: abratchik
 
+#define LOG_TAG "dnn"
 #include "dnn_converters.hpp"
 
 
