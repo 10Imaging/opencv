@@ -1,70 +1,57 @@
-apply plugin: 'com.android.model.library'
+apply plugin: 'com.android.library'
 
-model {
-    android {
-        compileSdkVersion = 21
-        buildToolsVersion = "21.1.2"
-        defaultConfig {
-            minSdkVersion.apiLevel = 21
-            targetSdkVersion.apiLevel = 21
-            versionCode 3100
-            versionName "3.1.0"
+android {
+    compileSdkVersion 27
+    buildToolsVersion 21
+    defaultConfig {
+        minSdkVersion 21
+        targetSdkVersion 21
+        versionCode 3410
+        versionName "3.4.1-10imaging"
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
         }
     }
-    android.abis {
-        create("arm64-v8a") {
-            ldFlags.add("-Wl,--no-warn-mismatch")
-        }
-        create("armeabi-v7a") {
-            ldFlags.add("-Wl,--no-warn-mismatch")
-        }
-    }
-    android.buildTypes {
+    buildTypes {
         release {
             minifyEnabled = false
-            proguardFiles.add(file('proguard-rules.txt'))
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
         debug {
             debuggable = true
+            jniDebuggable true
             ndk {
                 debuggable = true
             }
             renderscriptDebuggable = true
         }
     }
-    android.lintOptions {
-        abortOnError = false
-        xmlReport = false
-        quiet = false
-        showAll = true
-    }
-    android.ndk {
-        moduleName = "CVnative"
-        debuggable = true
-        abiFilters.addAll(['armeabi-v7a', 'arm64-v8a'])
-        CFlags.add("-v")
-        cppFlags.add("-v")
-        cppFlags.add("-I" + file("src/main/jni/include").absolutePath)
-        cppFlags.addAll(["-frtti","-fexceptions"])
-        ldFlags.add("--verbose")
-        stl = "gnustl_shared"
-    }
-    repositories {
-        libs(PrebuiltLibraries) {
-            opencv_java3 {
-                headers.srcDir "src/main/jni/include"
-                binaries.withType(SharedLibraryBinary) {
-                    sharedLibraryFile = file("src/main/jnilibs/${targetPlatform.getName()}/libopencv_java3.so")
-                }
-            }
+    externalNativeBuild {
+        ndkBuild {
+            path "src/main/jni/Android.mk"
         }
     }
-    android.packagingOptions {
+    lintOptions {
+        abortOnError = false
+        xmlReport = false
+        showAll = true
+        quiet = false
+    }
+    packagingOptions {
         merge "lib/**/libgnustl_shared.so"
         merge "lib/**/libc++_shared.so"
+        merge "lib/**/lib*.so"
     }
+    splits {
+        abi {
+            enable true
+            reset()
+            include "armeabi-v7a", "arm64-v8a"
+        }
+    }
+    buildToolsVersion '27.0.2'
 }
 
 dependencies {
-    compile 'com.android.support:support-v4:21.0.2'
+    implementation "com.android.support:support-v4:27.0.3"
 }
