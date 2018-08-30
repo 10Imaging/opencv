@@ -440,7 +440,11 @@ void MultiBandBlender::feed(InputArray _img, InputArray mask, Point tl)
 #endif
 
     std::vector<UMat> src_pyr_laplace;
-    createLaplacePyr(img_with_border, num_bands_, src_pyr_laplace);
+    if (can_use_gpu_ && img_with_border.depth() == CV_16S)
+        createLaplacePyrGpu(img_with_border, num_bands_, src_pyr_laplace);
+    else
+        createLaplacePyr(img_with_border, num_bands_, src_pyr_laplace);
+    img_with_border.release();
 
     LOGLN("  Create the source image Laplacian pyramid, time: " << ((getTickCount() - t) / getTickFrequency()) << " sec");
 #if ENABLE_LOG
@@ -590,14 +594,9 @@ void MultiBandBlender::blend(InputOutputArray dst, InputOutputArray dst_mask)
 
         restoreImageFromLaplacePyr(dst_pyr_laplace_);
 
-        dst_ = dst_pyr_laplace_[0](dst_rc);
-        dst_band_weights_0 = dst_band_weights_[0];
-
-        dst_pyr_laplace_.clear();
-        dst_band_weights_.clear();
-    }
-
-    compare(dst_band_weights_0(dst_rc), WEIGHT_EPS, dst_mask_, CMP_GT);
+    Rect dst_rc(0, 0, dst_roi_final_.width, dst_roi_final_.height);
+    compare(dst_band_weights_[0](dst_rc), WEIGHT_EPS, dst_mask, CMP_GT);
+    dst_band_weights_.clear();
 
     //Instead of calling Blender::blend(dst, dst_mask); perform code inline in order to avoid memory intensive copies
     dst.assign(dst_pyr_laplace_[0](dst_rc));
