@@ -1,6 +1,9 @@
 Interoperability with OpenCV 1 {#tutorial_interoperability_with_OpenCV_1}
 ==============================
 
+@prev_tutorial{tutorial_file_input_output_with_xml_yml}
+@next_tutorial{tutorial_how_to_use_ippa_conversion}
+
 Goal
 ----
 
@@ -69,7 +72,7 @@ CvMat* mI        =  &I.operator CvMat();
 @endcode
 One of the biggest complaints of the C interface is that it leaves all the memory management to you.
 You need to figure out when it is safe to release your unused objects and make sure you do so before
-the program finishes or you could have troublesome memory leeks. To work around this issue in OpenCV
+the program finishes or you could have troublesome memory leaks. To work around this issue in OpenCV
 there is introduced a sort of smart pointer. This will automatically release the object when it's no
 longer in use. To use this declare the pointers as a specialization of the *Ptr* :
 @code{.cpp}
@@ -85,7 +88,7 @@ L = Mat(pI);
 A case study
 ------------
 
-Now that you have the basics done [here's](https://github.com/opencv/opencv/tree/master/samples/cpp/tutorial_code/core/interoperability_with_OpenCV_1/interoperability_with_OpenCV_1.cpp)
+Now that you have the basics done [here's](https://github.com/opencv/opencv/tree/3.4/samples/cpp/tutorial_code/core/interoperability_with_OpenCV_1/interoperability_with_OpenCV_1.cpp)
 an example that mixes the usage of the C interface with the C++ one. You will also find it in the
 sample directory of the OpenCV source code library at the
 `samples/cpp/tutorial_code/core/interoperability_with_OpenCV_1/interoperability_with_OpenCV_1.cpp` .
@@ -132,7 +135,7 @@ output:
 
 You may observe a runtime instance of this on the [YouTube
 here](https://www.youtube.com/watch?v=qckm-zvo31w) and you can [download the source code from here
-](https://github.com/opencv/opencv/tree/master/samples/cpp/tutorial_code/core/interoperability_with_OpenCV_1/interoperability_with_OpenCV_1.cpp)
+](https://github.com/opencv/opencv/tree/3.4/samples/cpp/tutorial_code/core/interoperability_with_OpenCV_1/interoperability_with_OpenCV_1.cpp)
 or find it in the
 `samples/cpp/tutorial_code/core/interoperability_with_OpenCV_1/interoperability_with_OpenCV_1.cpp`
 of the OpenCV source code library.

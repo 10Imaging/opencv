@@ -15,7 +15,7 @@ Code
 ----
 
 This tutorial code's is shown lines below. You can also download it from
-[here](https://github.com/opencv/opencv/tree/master/samples/cpp/samples/cpp/stitching.cpp).
+[here](https://github.com/opencv/opencv/tree/3.4/samples/cpp/samples/cpp/stitching.cpp).
 
 @include samples/cpp/stitching.cpp
 
@@ -24,17 +24,7 @@ Explanation
 
 The most important code part is:
 
-@code{.cpp}
-Mat pano;
-Ptr<Stitcher> stitcher = Stitcher::create(mode, try_use_gpu);
-Stitcher::Status status = stitcher->stitch(imgs, pano);
-
-if (status != Stitcher::OK)
-{
-    cout << "Can't stitch images, error code = " << int(status) << endl;
-    return -1;
-}
-@endcode
+@snippet cpp/stitching.cpp stitching
 
 A new instance of stitcher is created and the @ref cv::Stitcher::stitch will
 do all the hard work.
@@ -111,5 +101,5 @@ See also
 
 If you want to study internals of the stitching pipeline or you want to experiment with detailed
 configuration see
-[stitching_detailed.cpp](https://github.com/opencv/opencv/tree/master/samples/cpp/stitching_detailed.cpp)
+[stitching_detailed.cpp](https://github.com/opencv/opencv/tree/3.4/samples/cpp/stitching_detailed.cpp)
 in `opencv/samples/cpp` folder.

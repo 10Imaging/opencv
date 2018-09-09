@@ -1,6 +1,9 @@
 Intel® IPP Asynchronous C/C++ library in OpenCV {#tutorial_how_to_use_ippa_conversion}
 ===============================================
 
+@prev_tutorial{tutorial_interoperability_with_OpenCV_1}
+@next_tutorial{tutorial_how_to_use_OpenCV_parallel_for_}
+
 Goal
 ----
 
@@ -16,7 +19,7 @@ Code
 
 You may also find the source code in the
 `samples/cpp/tutorial_code/core/ippasync/ippasync_sample.cpp` file of the OpenCV source library or
-download it from [here](https://github.com/opencv/opencv/tree/master/samples/cpp/tutorial_code/core/ippasync/ippasync_sample.cpp).
+download it from [here](https://github.com/opencv/opencv/tree/3.4/samples/cpp/tutorial_code/core/ippasync/ippasync_sample.cpp).
 
 @include cpp/tutorial_code/core/ippasync/ippasync_sample.cpp
 
