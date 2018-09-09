@@ -433,7 +433,7 @@ void MultiBandBlender::feed(InputArray _img, InputArray mask, Point tl)
     copyMakeBorder(_img, img_with_border, top, bottom, left, right,
                    BORDER_REFLECT);
     img.release();
-    
+
     LOGLN("  Add border to the source image, time: " << ((getTickCount() - t) / getTickFrequency()) << " sec");
 #if ENABLE_LOG
     t = getTickCount();
@@ -444,6 +444,8 @@ void MultiBandBlender::feed(InputArray _img, InputArray mask, Point tl)
         createLaplacePyrGpu(img_with_border, num_bands_, src_pyr_laplace);
     else
         createLaplacePyr(img_with_border, num_bands_, src_pyr_laplace);
+    img_with_border.release();
+
     img_with_border.release();
 
     LOGLN("  Create the source image Laplacian pyramid, time: " << ((getTickCount() - t) / getTickFrequency()) << " sec");
@@ -553,6 +555,16 @@ void MultiBandBlender::blend(InputOutputArray dst, InputOutputArray dst_mask)
 {
     cv::UMat dst_band_weights_0;
     Rect dst_rc(0, 0, dst_roi_final_.width, dst_roi_final_.height);
+    compare(dst_band_weights_[0](dst_rc), WEIGHT_EPS, dst_mask, CMP_GT);
+    dst_band_weights_.clear();
+
+    //Instead of calling Blender::blend(dst, dst_mask); perform code inline in order to avoid memory intensive copies
+    dst.assign(dst_pyr_laplace_[0](dst_rc));
+    dst_pyr_laplace_.clear();
+    UMat mask;
+    compare(dst_mask, 0, mask, CMP_EQ);
+    dst.setTo(Scalar::all(0), mask);
+
 #if defined(HAVE_OPENCV_CUDAARITHM) && defined(HAVE_OPENCV_CUDAWARPING)
     if (can_use_gpu_)
     {
