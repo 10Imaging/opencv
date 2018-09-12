@@ -91,7 +91,7 @@ compensate for the differences in the size of areas. The sums of pixel values ov
 regions are calculated rapidly using integral images (see below and the integral description).
 
 To see the object detector at work, have a look at the facedetect demo:
-<https://github.com/opencv/opencv/tree/3.4/samples/cpp/dbt_face_detection.cpp>
+<https://github.com/opencv/opencv/tree/master/samples/cpp/dbt_face_detection.cpp>
 
 The following reference is for the detection part only. There is a separate application called
 opencv_traincascade that can train a cascade of boosted classifiers from a set of samples.
@@ -175,7 +175,7 @@ class CV_EXPORTS_W BaseCascadeClassifier : public Algorithm
 {
 public:
     virtual ~BaseCascadeClassifier();
-    virtual bool empty() const CV_OVERRIDE = 0;
+    virtual bool empty() const = 0;
     virtual bool load( const String& filename ) = 0;
     virtual void detectMultiScale( InputArray image,
                            CV_OUT std::vector<Rect>& objects,
@@ -215,7 +215,7 @@ public:
     virtual Ptr<MaskGenerator> getMaskGenerator() = 0;
 };
 
-/** @example samples/cpp/facedetect.cpp
+/** @example facedetect.cpp
 This program demonstrates usage of the Cascade classifier class
 \image html Cascade_Classifier_Tutorial_Result_Haar.jpg "Sample screenshot" width=321 height=254
 */
@@ -443,7 +443,7 @@ public:
     */
     CV_WRAP double getWinSigma() const;
 
-    /**@example samples/cpp/peopledetect.cpp
+    /**@example peopledetect.cpp
     */
     /**@brief Sets coefficients for the linear SVM classifier.
     @param _svmdetector coefficients for the linear SVM classifier.
@@ -478,7 +478,7 @@ public:
     */
     virtual void copyTo(HOGDescriptor& c) const;
 
-    /**@example samples/cpp/train_HOG.cpp
+    /**@example train_HOG.cpp
     */
     /** @brief Computes HOG descriptors of given image.
     @param img Matrix of the type CV_8U containing an image where HOG features will be calculated.
@@ -575,7 +575,7 @@ public:
     */
     CV_WRAP static std::vector<float> getDefaultPeopleDetector();
 
-    /**@example samples/tapi/hog.cpp
+    /**@example hog.cpp
     */
     /** @brief Returns coefficients of the classifier trained for people detection (for 48x96 windows).
     */
@@ -669,29 +669,6 @@ public:
     */
     void groupRectangles(std::vector<cv::Rect>& rectList, std::vector<double>& weights, int groupThreshold, double eps) const;
 };
-
-class CV_EXPORTS QRCodeDetector
-{
-public:
-    QRCodeDetector();
-    ~QRCodeDetector();
-
-    void setEpsX(double epsX);
-    void setEpsY(double epsY);
-
-    bool detect(InputArray in, OutputArray points) const;
-protected:
-    struct Impl;
-    Ptr<Impl> p;
-};
-
-/** @brief Detect QR code in image and return minimum area of quadrangle that describes QR code.
-    @param in  Matrix of the type CV_8UC1 containing an image where QR code are detected.
-    @param points Output vector of vertices of a quadrangle of minimal area that describes QR code.
-    @param eps_x Epsilon neighborhood, which allows you to determine the horizontal pattern of the scheme 1:1:3:1:1 according to QR code standard.
-    @param eps_y Epsilon neighborhood, which allows you to determine the vertical pattern of the scheme 1:1:3:1:1 according to QR code standard.
-    */
-CV_EXPORTS bool detectQRCode(InputArray in, std::vector<Point> &points, double eps_x = 0.2, double eps_y = 0.1);
 
 //! @} objdetect
 

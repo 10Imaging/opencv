@@ -79,7 +79,7 @@ if __name__ == '__main__':
 
     img = cv.imread(fn, 0)
     if img is None:
-        print('Failed to load file:', fn)
+        print('Failed to load fn1:', fn1)
         sys.exit(1)
 
     img = np.float32(img)/255.0

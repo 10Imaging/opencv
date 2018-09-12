@@ -329,12 +329,12 @@ MotionInpainter::MotionInpainter()
 {
 #ifdef HAVE_OPENCV_CUDAOPTFLOW
     setOptFlowEstimator(makePtr<DensePyrLkOptFlowEstimatorGpu>());
-    setFlowErrorThreshold(1e-4f);
-    setDistThreshold(5.f);
-    setBorderMode(BORDER_REPLICATE);
 #else
     CV_Error(Error::StsNotImplemented, "Current implementation of MotionInpainter requires CUDA");
 #endif
+    setFlowErrorThreshold(1e-4f);
+    setDistThreshold(5.f);
+    setBorderMode(BORDER_REPLICATE);
 }
 
 
@@ -447,7 +447,7 @@ public:
             }
         }
 
-        float wSumInv = (std::fabs(wSum) > 0) ? (1.f / wSum) : 0; // if wSum is 0, c1-c3 will be 0 too
+        float wSumInv = 1.f / wSum;
         frame(y,x) = Point3_<uchar>(
                 static_cast<uchar>(c1*wSumInv),
                 static_cast<uchar>(c2*wSumInv),

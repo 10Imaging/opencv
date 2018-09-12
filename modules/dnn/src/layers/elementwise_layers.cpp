@@ -42,8 +42,8 @@
 
 #include "../precomp.hpp"
 #include "layers_common.hpp"
-#include "../op_halide.hpp"
-#include "../op_inf_engine.hpp"
+#include "op_halide.hpp"
+#include "op_inf_engine.hpp"
 #include "opencv2/imgproc.hpp"
 #include <opencv2/dnn/shape_utils.hpp>
 #include <iostream>
@@ -82,7 +82,7 @@ public:
             nstripes_ = nstripes;
         }
 
-        void operator()(const Range &r) const CV_OVERRIDE
+        void operator()(const Range &r) const
         {
             int nstripes = nstripes_, nsamples = 1, outCn = 1;
             size_t planeSize = 1;
@@ -113,12 +113,14 @@ public:
 
     ElementWiseLayer(const Func &f=Func()) : run_parallel(false) { func = f; }
 
-    virtual bool supportBackend(int backendId) CV_OVERRIDE
+    virtual bool supportBackend(int backendId)
     {
-        return func.supportBackend(backendId, this->preferableTarget);
+        return backendId == DNN_BACKEND_DEFAULT ||
+               backendId == DNN_BACKEND_HALIDE && haveHalide() ||
+               backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine() && this->type != "Sigmoid";
     }
 
-    virtual Ptr<BackendNode> tryAttach(const Ptr<BackendNode>& node) CV_OVERRIDE
+    virtual Ptr<BackendNode> tryAttach(const Ptr<BackendNode>& node)
     {
         switch (node->backendId)
         {
@@ -138,7 +140,7 @@ public:
         return Ptr<BackendNode>();
     }
 
-    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &inputs) CV_OVERRIDE
+    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &inputs)
     {
 #ifdef HAVE_HALIDE
         Halide::Buffer<float> input = halideBuffer(inputs[0]);
@@ -150,7 +152,7 @@ public:
         return Ptr<BackendNode>();
     }
 
-    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&) CV_OVERRIDE
+    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&)
     {
 #ifdef HAVE_INF_ENGINE
         InferenceEngine::LayerParams lp;
@@ -164,23 +166,24 @@ public:
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
                          const int requiredOutputs,
                          std::vector<MatShape> &outputs,
-                         std::vector<MatShape> &internals) const CV_OVERRIDE
+                         std::vector<MatShape> &internals) const
     {
         Layer::getMemoryShapes(inputs, requiredOutputs, outputs, internals);
         return true;
     }
 
-    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE
+    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr)
     {
         CV_TRACE_FUNCTION();
 
-        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(this->preferableTarget),
+        CV_OCL_RUN((this->preferableTarget == DNN_TARGET_OPENCL) &&
+                   OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
                    func.applyOCL(inputs_arr, outputs_arr, internals_arr))
 
         Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
     }
 
-    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
+    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals)
     {
         CV_TRACE_FUNCTION();
 
@@ -197,13 +200,13 @@ public:
         }
     }
 
-    void forwardSlice(const float* src, float* dst, int len, size_t planeSize, int cn0, int cn1) const CV_OVERRIDE
+    void forwardSlice(const float* src, float* dst, int len, size_t planeSize, int cn0, int cn1) const
     {
         func.apply(src, dst, len, planeSize, cn0, cn1);
     }
 
     virtual int64 getFLOPS(const std::vector<MatShape> &inputs,
-                           const std::vector<MatShape> &outputs) const CV_OVERRIDE
+                           const std::vector<MatShape> &outputs) const
     {
         long flops = 0;
         for (int i = 0; i < outputs.size(); i++)
@@ -220,12 +223,7 @@ public:
 #ifdef HAVE_OPENCL
 static String oclGetTMacro(const UMat &m)
 {
-    String str_name = ocl::typeToStr(m.type());
-
-    if (str_name == "short")
-        str_name = "half";
-
-    return format("-DT=%s -Dconvert_T=convert_%s ", str_name.c_str(), str_name.c_str());
+    return String("-DT=") + ocl::typeToStr(m.type()) + String(" ");
 }
 #endif
 
@@ -235,12 +233,6 @@ struct ReLUFunctor
     float slope;
 
     explicit ReLUFunctor(float slope_=1.f) : slope(slope_) {}
-
-    bool supportBackend(int backendId, int)
-    {
-        return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE ||
-               backendId == DNN_BACKEND_INFERENCE_ENGINE;
-    }
 
     void apply(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const
     {
@@ -337,8 +329,6 @@ struct ReLUFunctor
     {
         lp.type = "ReLU";
         std::shared_ptr<InferenceEngine::ReLULayer> ieLayer(new InferenceEngine::ReLULayer(lp));
-        ieLayer->negative_slope = slope;
-        ieLayer->params["negative_slope"] = format("%f", slope);
         return ieLayer;
     }
 #endif  // HAVE_INF_ENGINE
@@ -355,12 +345,6 @@ struct ReLU6Functor
         : minValue(minValue_), maxValue(maxValue_)
     {
         CV_Assert(minValue <= maxValue);
-    }
-
-    bool supportBackend(int backendId, int)
-    {
-        return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE ||
-               backendId == DNN_BACKEND_INFERENCE_ENGINE;
     }
 
     void apply(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const
@@ -442,8 +426,6 @@ struct ReLU6Functor
         std::shared_ptr<InferenceEngine::ClampLayer> ieLayer(new InferenceEngine::ClampLayer(lp));
         ieLayer->min_value = minValue;
         ieLayer->max_value = maxValue;
-        ieLayer->params["min"] = format("%f", minValue);
-        ieLayer->params["max"] = format("%f", maxValue);
         return ieLayer;
     }
 #endif  // HAVE_INF_ENGINE
@@ -454,12 +436,6 @@ struct ReLU6Functor
 struct TanHFunctor
 {
     typedef TanHLayer Layer;
-
-    bool supportBackend(int backendId, int)
-    {
-        return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE ||
-               backendId == DNN_BACKEND_INFERENCE_ENGINE;
-    }
 
     void apply(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const
     {
@@ -512,9 +488,8 @@ struct TanHFunctor
 #ifdef HAVE_INF_ENGINE
     InferenceEngine::CNNLayerPtr initInfEngine(InferenceEngine::LayerParams& lp)
     {
-        lp.type = "TanH";
-        std::shared_ptr<InferenceEngine::CNNLayer> ieLayer(new InferenceEngine::CNNLayer(lp));
-        return ieLayer;
+        CV_Error(Error::StsNotImplemented, "TanH");
+        return InferenceEngine::CNNLayerPtr();
     }
 #endif  // HAVE_INF_ENGINE
 
@@ -524,12 +499,6 @@ struct TanHFunctor
 struct SigmoidFunctor
 {
     typedef SigmoidLayer Layer;
-
-    bool supportBackend(int backendId, int)
-    {
-        return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE ||
-               backendId == DNN_BACKEND_INFERENCE_ENGINE;
-    }
 
     void apply(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const
     {
@@ -546,28 +515,8 @@ struct SigmoidFunctor
 #ifdef HAVE_OPENCL
     bool applyOCL(InputArrayOfArrays inps, OutputArrayOfArrays outs, OutputArrayOfArrays internals)
     {
-        std::vector<UMat> inputs;
-        std::vector<UMat> outputs;
-
-        inps.getUMatVector(inputs);
-        outs.getUMatVector(outputs);
-        String buildopt = oclGetTMacro(inputs[0]);
-
-        for (size_t i = 0; i < inputs.size(); i++)
-        {
-            UMat& src = inputs[i];
-            UMat& dst = outputs[i];
-
-            ocl::Kernel kernel("SigmoidForward", ocl::dnn::activations_oclsrc, buildopt);
-            kernel.set(0, (int)src.total());
-            kernel.set(1, ocl::KernelArg::PtrReadOnly(src));
-            kernel.set(2, ocl::KernelArg::PtrWriteOnly(dst));
-
-            size_t gSize = src.total();
-            CV_Assert(kernel.run(1, &gSize, NULL, false));
-        }
-
-        return true;
+        // TODO: implement OCL version
+        return false;
     }
 #endif
 
@@ -582,9 +531,8 @@ struct SigmoidFunctor
 #ifdef HAVE_INF_ENGINE
     InferenceEngine::CNNLayerPtr initInfEngine(InferenceEngine::LayerParams& lp)
     {
-        lp.type = "Sigmoid";
-        std::shared_ptr<InferenceEngine::CNNLayer> ieLayer(new InferenceEngine::CNNLayer(lp));
-        return ieLayer;
+        CV_Error(Error::StsNotImplemented, "Sigmoid");
+        return InferenceEngine::CNNLayerPtr();
     }
 #endif  // HAVE_INF_ENGINE
 
@@ -596,12 +544,6 @@ struct ELUFunctor
     typedef ELULayer Layer;
 
     explicit ELUFunctor() {}
-
-    bool supportBackend(int backendId, int)
-    {
-        return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE ||
-               backendId == DNN_BACKEND_INFERENCE_ENGINE;
-    }
 
     void apply(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const
     {
@@ -618,28 +560,8 @@ struct ELUFunctor
 #ifdef HAVE_OPENCL
     bool applyOCL(InputArrayOfArrays inps, OutputArrayOfArrays outs, OutputArrayOfArrays internals)
     {
-        std::vector<UMat> inputs;
-        std::vector<UMat> outputs;
-
-        inps.getUMatVector(inputs);
-        outs.getUMatVector(outputs);
-        String buildopt = oclGetTMacro(inputs[0]);
-
-        for (size_t i = 0; i < inputs.size(); i++)
-        {
-            UMat& src = inputs[i];
-            UMat& dst = outputs[i];
-
-            ocl::Kernel kernel("ELUForward", ocl::dnn::activations_oclsrc, buildopt);
-            kernel.set(0, (int)src.total());
-            kernel.set(1, ocl::KernelArg::PtrReadOnly(src));
-            kernel.set(2, ocl::KernelArg::PtrWriteOnly(dst));
-
-            size_t gSize = src.total();
-            CV_Assert(kernel.run(1, &gSize, NULL, false));
-        }
-
-        return true;
+        // TODO: implement OCL version
+        return false;
     }
 #endif
 
@@ -654,8 +576,8 @@ struct ELUFunctor
 #ifdef HAVE_INF_ENGINE
     InferenceEngine::CNNLayerPtr initInfEngine(InferenceEngine::LayerParams& lp)
     {
-        lp.type = "ELU";
-        return InferenceEngine::CNNLayerPtr(new InferenceEngine::CNNLayer(lp));
+        CV_Error(Error::StsNotImplemented, "ELU");
+        return InferenceEngine::CNNLayerPtr();
     }
 #endif  // HAVE_INF_ENGINE
 
@@ -665,11 +587,6 @@ struct ELUFunctor
 struct AbsValFunctor
 {
     typedef AbsLayer Layer;
-
-    bool supportBackend(int backendId, int)
-    {
-        return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE;
-    }
 
     void apply(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const
     {
@@ -686,28 +603,8 @@ struct AbsValFunctor
 #ifdef HAVE_OPENCL
     bool applyOCL(InputArrayOfArrays inps, OutputArrayOfArrays outs, OutputArrayOfArrays internals)
     {
-        std::vector<UMat> inputs;
-        std::vector<UMat> outputs;
-
-        inps.getUMatVector(inputs);
-        outs.getUMatVector(outputs);
-        String buildopt = oclGetTMacro(inputs[0]);
-
-        for (size_t i = 0; i < inputs.size(); i++)
-        {
-            UMat& src = inputs[i];
-            UMat& dst = outputs[i];
-
-            ocl::Kernel kernel("AbsValForward", ocl::dnn::activations_oclsrc, buildopt);
-            kernel.set(0, (int)src.total());
-            kernel.set(1, ocl::KernelArg::PtrReadOnly(src));
-            kernel.set(2, ocl::KernelArg::PtrWriteOnly(dst));
-
-            size_t gSize = src.total();
-            CV_Assert(kernel.run(1, &gSize, NULL, false));
-        }
-
-        return true;
+        // TODO: implement OCL version
+        return false;
     }
 #endif
 
@@ -733,11 +630,6 @@ struct AbsValFunctor
 struct BNLLFunctor
 {
     typedef BNLLLayer Layer;
-
-    bool supportBackend(int backendId, int)
-    {
-        return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE;
-    }
 
     void apply(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const
     {
@@ -788,14 +680,6 @@ struct PowerFunctor
 
     explicit PowerFunctor(float power_ = 1.f, float scale_ = 1.f, float shift_ = 0.f)
         : power(power_), scale(scale_), shift(shift_) {}
-
-    bool supportBackend(int backendId, int targetId)
-    {
-        if (backendId == DNN_BACKEND_INFERENCE_ENGINE)
-            return (targetId != DNN_TARGET_OPENCL && targetId != DNN_TARGET_OPENCL_FP16) || power == 1.0;
-        else
-            return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE;
-    }
 
     void apply(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const
     {
@@ -897,11 +781,6 @@ struct ChannelsPReLUFunctor
     explicit ChannelsPReLUFunctor(const Mat& scale_=Mat()) : scale(scale_)
     {
         scale_umat = scale.getUMat(ACCESS_READ);
-    }
-
-    bool supportBackend(int backendId, int)
-    {
-        return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE;
     }
 
     void apply(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const

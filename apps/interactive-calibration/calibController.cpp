@@ -224,10 +224,8 @@ void calib::calibDataController::filterFrames()
         cv::Mat newErrorsVec = cv::Mat((int)numberOfFrames - 1, 1, CV_64F);
         std::copy(mCalibData->perViewErrors.ptr<double>(0),
                   mCalibData->perViewErrors.ptr<double>((int)worstElemIndex), newErrorsVec.ptr<double>(0));
-        if((int)worstElemIndex < (int)numberOfFrames-1) {
-            std::copy(mCalibData->perViewErrors.ptr<double>((int)worstElemIndex + 1), mCalibData->perViewErrors.ptr<double>((int)numberOfFrames),
+        std::copy(mCalibData->perViewErrors.ptr<double>((int)worstElemIndex + 1), mCalibData->perViewErrors.ptr<double>((int)numberOfFrames),
                     newErrorsVec.ptr<double>((int)worstElemIndex));
-        }
         mCalibData->perViewErrors = newErrorsVec;
     }
 }

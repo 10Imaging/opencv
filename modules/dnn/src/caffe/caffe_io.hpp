@@ -91,15 +91,7 @@
 #define __OPENCV_DNN_CAFFE_IO_HPP__
 #ifdef HAVE_PROTOBUF
 
-#if defined(__GNUC__) && __GNUC__ >= 5
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wsuggest-override"
-#endif
 #include "opencv-caffe.pb.h"
-#if defined(__GNUC__) && __GNUC__ >= 5
-#pragma GCC diagnostic pop
-#endif
-
 namespace caffe { using namespace opencv_caffe; } // avoid massive renames from caffe proto package
 
 namespace cv {

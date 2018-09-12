@@ -21,15 +21,12 @@ const char* keys =
     "{ height      |   | Preprocess input image by resizing to a specific height. }"
     "{ rgb         |   | Indicate that model works with RGB input images instead BGR ones. }"
     "{ backend     | 0 | Choose one of computation backends: "
-                        "0: automatically (by default), "
+                        "0: default C++ backend, "
                         "1: Halide language (http://halide-lang.org/), "
-                        "2: Intel's Deep Learning Inference Engine (https://software.intel.com/openvino-toolkit), "
-                        "3: OpenCV implementation }"
+                        "2: Intel's Deep Learning Inference Engine (https://software.seek.intel.com/deep-learning-deployment)}"
     "{ target      | 0 | Choose one of target computation devices: "
-                        "0: CPU target (by default), "
-                        "1: OpenCL, "
-                        "2: OpenCL fp16 (half-float precision), "
-                        "3: VPU }";
+                        "0: CPU target (by default),"
+                        "1: OpenCL }";
 
 using namespace cv;
 using namespace dnn;
@@ -49,6 +46,7 @@ int main(int argc, char** argv)
     float scale = parser.get<float>("scale");
     Scalar mean = parser.get<Scalar>("mean");
     bool swapRB = parser.get<bool>("rgb");
+    CV_Assert(parser.has("width"), parser.has("height"));
     int inpWidth = parser.get<int>("width");
     int inpHeight = parser.get<int>("height");
     String model = parser.get<String>("model");
@@ -71,13 +69,7 @@ int main(int argc, char** argv)
         }
     }
 
-    if (!parser.check())
-    {
-        parser.printErrors();
-        return 1;
-    }
-    CV_Assert(!model.empty());
-
+    CV_Assert(parser.has("model"));
     //! [Read and initialize network]
     Net net = readNet(model, config, framework);
     net.setPreferableBackend(backendId);

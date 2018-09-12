@@ -417,7 +417,7 @@ int DTreesImpl::findBestSplit( const vector<int>& _sidx )
     int splitidx = -1;
     int vi_, nv = (int)activeVars.size();
     AutoBuffer<int> buf(w->maxSubsetSize*2);
-    int *subset = buf.data(), *best_subset = subset + w->maxSubsetSize;
+    int *subset = buf, *best_subset = subset + w->maxSubsetSize;
     WSplit split, best_split;
     best_split.quality = 0.;
 
@@ -488,7 +488,7 @@ void DTreesImpl::calcValue( int nidx, const vector<int>& _sidx )
         //    misclassified samples with cv_labels(*)==j.
 
         // compute the number of instances of each class
-        double* cls_count = buf.data();
+        double* cls_count = buf;
         double* cv_cls_count = cls_count + m;
 
         double max_val = -1, total_weight = 0;
@@ -592,7 +592,7 @@ void DTreesImpl::calcValue( int nidx, const vector<int>& _sidx )
         }
         else
         {
-            double *cv_sum = buf.data(), *cv_sum2 = cv_sum + cv_n;
+            double *cv_sum = buf, *cv_sum2 = cv_sum + cv_n;
             double* cv_count = (double*)(cv_sum2 + cv_n);
 
             for( j = 0; j < cv_n; j++ )
@@ -630,9 +630,8 @@ void DTreesImpl::calcValue( int nidx, const vector<int>& _sidx )
                 w->cv_Tn[nidx*cv_n + j] = INT_MAX;
             }
         }
-        CV_Assert(fabs(sumw) > 0);
+
         node->node_risk = sum2 - (sum/sumw)*sum;
-        node->node_risk /= sumw;
         node->value = sum/sumw;
     }
 }
@@ -646,7 +645,7 @@ DTreesImpl::WSplit DTreesImpl::findSplitOrdClass( int vi, const vector<int>& _si
     const int* sidx = &_sidx[0];
     const int* responses = &w->cat_responses[0];
     const double* weights = &w->sample_weights[0];
-    double* lcw = (double*)buf.data();
+    double* lcw = (double*)(uchar*)buf;
     double* rcw = lcw + m;
     float* values = (float*)(rcw + m);
     int* sorted_idx = (int*)(values + n);
@@ -717,7 +716,7 @@ void DTreesImpl::clusterCategories( const double* vectors, int n, int m, double*
     int iters = 0, max_iters = 100;
     int i, j, idx;
     cv::AutoBuffer<double> buf(n + k);
-    double *v_weights = buf.data(), *c_weights = buf.data() + n;
+    double *v_weights = buf, *c_weights = buf + n;
     bool modified = true;
     RNG r((uint64)-1);
 
@@ -819,12 +818,12 @@ DTreesImpl::WSplit DTreesImpl::findSplitCatClass( int vi, const vector<int>& _si
         base_size += mi;
     AutoBuffer<double> buf(base_size + n);
 
-    double* lc = buf.data();
+    double* lc = (double*)buf;
     double* rc = lc + m;
     double* _cjk = rc + m*2, *cjk = _cjk;
     double* c_weights = cjk + m*mi;
 
-    int* labels = (int*)(buf.data() + base_size);
+    int* labels = (int*)(buf + base_size);
     w->data->getNormCatValues(vi, _sidx, labels);
     const int* responses = &w->cat_responses[0];
     const double* weights = &w->sample_weights[0];
@@ -991,7 +990,7 @@ DTreesImpl::WSplit DTreesImpl::findSplitOrdReg( int vi, const vector<int>& _sidx
 
     AutoBuffer<uchar> buf(n*(sizeof(int) + sizeof(float)));
 
-    float* values = (float*)buf.data();
+    float* values = (float*)(uchar*)buf;
     int* sorted_idx = (int*)(values + n);
     w->data->getValues(vi, _sidx, values);
     const double* responses = &w->ord_responses[0];
@@ -1053,7 +1052,7 @@ DTreesImpl::WSplit DTreesImpl::findSplitCatReg( int vi, const vector<int>& _sidx
     int mi = getCatCount(vi);
 
     AutoBuffer<double> buf(3*mi + 3 + n);
-    double* sum = buf.data() + 1;
+    double* sum = (double*)buf + 1;
     double* counts = sum + mi + 1;
     double** sum_ptr = (double**)(counts + mi);
     int* cat_labels = (int*)(sum_ptr + mi);
@@ -1148,7 +1147,7 @@ int DTreesImpl::calcDir( int splitidx, const vector<int>& _sidx,
     if( mi <= 0 ) // split on an ordered variable
     {
         float c = split.c;
-        float* values = buf.data();
+        float* values = buf;
         w->data->getValues(vi, _sidx, values);
 
         for( i = 0; i < n; i++ )
@@ -1169,7 +1168,7 @@ int DTreesImpl::calcDir( int splitidx, const vector<int>& _sidx,
     else
     {
         const int* subset = &w->wsubsets[split.subsetOfs];
-        int* cat_labels = (int*)buf.data();
+        int* cat_labels = (int*)(float*)buf;
         w->data->getNormCatValues(vi, _sidx, cat_labels);
 
         for( i = 0; i < n; i++ )
@@ -1372,7 +1371,7 @@ float DTreesImpl::predictTrees( const Range& range, const Mat& sample, int flags
     int i, ncats = (int)catOfs.size(), nclasses = (int)classLabels.size();
     int catbufsize = ncats > 0 ? nvars : 0;
     AutoBuffer<int> buf(nclasses + catbufsize + 1);
-    int* votes = buf.data();
+    int* votes = buf;
     int* catbuf = votes + nclasses;
     const int* cvidx = (flags & (COMPRESSED_INPUT|PREPROCESSED_INPUT)) == 0 && !varIdx.empty() ? &compVarIdx[0] : 0;
     const uchar* vtype = &varType[0];

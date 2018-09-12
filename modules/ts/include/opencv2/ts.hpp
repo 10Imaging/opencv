@@ -63,17 +63,7 @@
 # endif
 #endif
 
-#if defined(__OPENCV_BUILD) && defined(__clang__)
-#pragma clang diagnostic ignored "-Winconsistent-missing-override"
-#endif
-#if defined(__OPENCV_BUILD) && defined(__GNUC__) && __GNUC__ >= 5
-//#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wsuggest-override"
-#endif
 #include "opencv2/ts/ts_gtest.h"
-#if defined(__OPENCV_BUILD) && defined(__GNUC__) && __GNUC__ >= 5
-//#pragma GCC diagnostic pop
-#endif
 #include "opencv2/ts/ts_ext.hpp"
 
 #ifndef GTEST_USES_SIMPLE_RE
@@ -103,7 +93,6 @@ using std::pair;
 using std::make_pair;
 using testing::TestWithParam;
 using testing::Values;
-using testing::ValuesIn;
 using testing::Combine;
 
 using cv::Mat;
@@ -379,9 +368,10 @@ struct TSParams
 
 class TS
 {
+public:
+    // constructor(s) and destructor
     TS();
     virtual ~TS();
-public:
 
     enum
     {
@@ -483,6 +473,9 @@ public:
         SKIPPED=1
     };
 
+    // get file storage
+    CvFileStorage* get_file_storage();
+
     // get RNG to generate random input data for a test
     RNG& get_rng() { return rng; }
 
@@ -526,13 +519,13 @@ public:
     ArrayTest();
     virtual ~ArrayTest();
 
-    virtual void clear() CV_OVERRIDE;
+    virtual void clear();
 
 protected:
 
-    virtual int read_params( CvFileStorage* fs ) CV_OVERRIDE;
-    virtual int prepare_test_case( int test_case_idx ) CV_OVERRIDE;
-    virtual int validate_test_results( int test_case_idx ) CV_OVERRIDE;
+    virtual int read_params( CvFileStorage* fs );
+    virtual int prepare_test_case( int test_case_idx );
+    virtual int validate_test_results( int test_case_idx );
 
     virtual void prepare_to_validation( int test_case_idx );
     virtual void get_test_array_types_and_sizes( int test_case_idx, vector<vector<Size> >& sizes, vector<vector<int> >& types );
@@ -565,7 +558,7 @@ public:
 
 protected:
     virtual int run_test_case( int expected_code, const string& descr );
-    virtual void run_func(void) CV_OVERRIDE = 0;
+    virtual void run_func(void) = 0;
     int test_case_idx;
 
     template<class F>
@@ -625,6 +618,9 @@ struct DefaultRngAuto
 void fillGradient(Mat& img, int delta = 5);
 void smoothBorder(Mat& img, const Scalar& color, int delta = 3);
 
+void printVersionInfo(bool useStdOut = true);
+
+
 // Utility functions
 
 void addDataSearchPath(const std::string& path);
@@ -648,18 +644,6 @@ void addDataSearchSubDirectory(const std::string& subdir);
  */
 std::string findDataFile(const std::string& relative_path, bool required = true);
 
-/*! @brief Try to find requested data directory
-@sa findDataFile
- */
-std::string findDataDirectory(const std::string& relative_path, bool required = true);
-
-// Test definitions
-
-class SystemInfoCollector : public testing::EmptyTestEventListener
-{
-private:
-    virtual void OnTestProgramStart(const testing::UnitTest&);
-};
 
 #ifndef __CV_TEST_EXEC_ARGS
 #if defined(_MSC_VER) && (_MSC_VER <= 1400)
@@ -669,6 +653,15 @@ private:
 #define __CV_TEST_EXEC_ARGS(...)    \
     __VA_ARGS__;
 #endif
+#endif
+
+#ifdef HAVE_OPENCL
+namespace ocl {
+void dumpOpenCLDevice();
+}
+#define TEST_DUMP_OCL_INFO cvtest::ocl::dumpOpenCLDevice();
+#else
+#define TEST_DUMP_OCL_INFO
 #endif
 
 void parseCustomOptions(int argc, char **argv);
@@ -687,7 +680,8 @@ int main(int argc, char **argv) \
     ts->init(resourcesubdir); \
     __CV_TEST_EXEC_ARGS(CV_TEST_INIT0_ ## INIT0) \
     ::testing::InitGoogleTest(&argc, argv); \
-    ::testing::UnitTest::GetInstance()->listeners().Append(new SystemInfoCollector); \
+    cvtest::printVersionInfo(); \
+    TEST_DUMP_OCL_INFO \
     __CV_TEST_EXEC_ARGS(__VA_ARGS__) \
     parseCustomOptions(argc, argv); \
     } \

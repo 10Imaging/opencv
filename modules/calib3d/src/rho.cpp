@@ -336,9 +336,9 @@ struct RHO_HEST_REFC : RHO_HEST{
     ~RHO_HEST_REFC();
 
     /* Methods to implement external interface */
-    inline int    initialize(void) CV_OVERRIDE;
-    inline void   finalize(void) CV_OVERRIDE;
-    inline int    ensureCapacity(unsigned N, double beta) CV_OVERRIDE;
+    inline int    initialize(void);
+    inline void   finalize(void);
+    inline int    ensureCapacity(unsigned N, double beta);
     unsigned      rhoHest(const float*   src,     /* Source points */
                           const float*   dst,     /* Destination points */
                           char*          inl,     /* Inlier mask */
@@ -351,8 +351,7 @@ struct RHO_HEST_REFC : RHO_HEST{
                           double         beta,    /* Works:    0.35 */
                           unsigned       flags,   /* Works:       0 */
                           const float*   guessH,  /* Extrinsic guess, NULL if none provided */
-                          float*         finalH   /* Final result. */
-    ) CV_OVERRIDE;
+                          float*         finalH); /* Final result. */
 
 
 

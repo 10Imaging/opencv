@@ -54,7 +54,16 @@ namespace clahe
         const int tilesX, const int tilesY, const cv::Size tileSize,
         const int clipLimit, const float lutScale)
     {
-        cv::ocl::Kernel k("calcLut", cv::ocl::imgproc::clahe_oclsrc);
+        cv::ocl::Kernel _k("calcLut", cv::ocl::imgproc::clahe_oclsrc);
+
+        bool is_cpu = cv::ocl::Device::getDefault().type() == cv::ocl::Device::TYPE_CPU;
+        cv::String opts;
+        if(is_cpu)
+            opts = "-D CPU ";
+        else
+            opts = cv::format("-D WAVE_SIZE=%d", _k.preferedWorkGroupSizeMultiple());
+
+        cv::ocl::Kernel k("calcLut", cv::ocl::imgproc::clahe_oclsrc, opts);
         if(k.empty())
             return false;
 
@@ -127,7 +136,7 @@ namespace
         {
         }
 
-        void operator ()(const cv::Range& range) const CV_OVERRIDE;
+        void operator ()(const cv::Range& range) const;
 
     private:
         cv::Mat src_;
@@ -230,7 +239,7 @@ namespace
             src_(src), dst_(dst), lut_(lut), tileSize_(tileSize), tilesX_(tilesX), tilesY_(tilesY)
         {
             buf.allocate(src.cols << 2);
-            ind1_p = buf.data();
+            ind1_p = (int *)buf;
             ind2_p = ind1_p + src.cols;
             xa_p = (float *)(ind2_p + src.cols);
             xa1_p = xa_p + src.cols;
@@ -256,7 +265,7 @@ namespace
             }
         }
 
-        void operator ()(const cv::Range& range) const CV_OVERRIDE;
+        void operator ()(const cv::Range& range) const;
 
     private:
         cv::Mat src_;
@@ -310,20 +319,20 @@ namespace
         }
     }
 
-    class CLAHE_Impl CV_FINAL : public cv::CLAHE
+    class CLAHE_Impl : public cv::CLAHE
     {
     public:
         CLAHE_Impl(double clipLimit = 40.0, int tilesX = 8, int tilesY = 8);
 
-        void apply(cv::InputArray src, cv::OutputArray dst) CV_OVERRIDE;
+        void apply(cv::InputArray src, cv::OutputArray dst);
 
-        void setClipLimit(double clipLimit) CV_OVERRIDE;
-        double getClipLimit() const CV_OVERRIDE;
+        void setClipLimit(double clipLimit);
+        double getClipLimit() const;
 
-        void setTilesGridSize(cv::Size tileGridSize) CV_OVERRIDE;
-        cv::Size getTilesGridSize() const CV_OVERRIDE;
+        void setTilesGridSize(cv::Size tileGridSize);
+        cv::Size getTilesGridSize() const;
 
-        void collectGarbage() CV_OVERRIDE;
+        void collectGarbage();
 
     private:
         double clipLimit_;

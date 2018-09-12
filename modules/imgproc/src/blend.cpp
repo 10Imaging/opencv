@@ -308,7 +308,7 @@ public:
     {
     }
 
-    virtual void operator() (const Range & range) const CV_OVERRIDE
+    virtual void operator() (const Range & range) const
     {
         int cn = src1->channels(), width = src1->cols * cn;
 

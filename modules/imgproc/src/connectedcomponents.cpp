@@ -283,8 +283,8 @@ namespace cv{
 
             FirstScan8Connectivity&  operator=(const FirstScan8Connectivity& ) { return *this; }
 
-            void operator()(const cv::Range& range) const CV_OVERRIDE
-            {
+            void operator()(const cv::Range& range) const{
+
                 int r = range.start;
                 chunksSizeAndLabels_[r] = range.end;
 
@@ -385,8 +385,8 @@ namespace cv{
 
             FirstScan4Connectivity&  operator=(const FirstScan4Connectivity& ) { return *this; }
 
-            void operator()(const cv::Range& range) const CV_OVERRIDE
-            {
+            void operator()(const cv::Range& range) const{
+
                 int r = range.start;
                 chunksSizeAndLabels_[r] = range.end;
 
@@ -462,8 +462,8 @@ namespace cv{
 
             SecondScan&  operator=(const SecondScan& ) { return *this; }
 
-            void operator()(const cv::Range& range) const CV_OVERRIDE
-            {
+            void operator()(const cv::Range& range) const{
+
                 int r = range.start;
                 const int rowBegin = r;
                 const int rowEnd = range.end;
@@ -503,7 +503,7 @@ namespace cv{
             // +-+-+-+
             // |p|q|r|
             // +-+-+-+
-            //   |x|
+            //	 |x|
             //   +-+
             const int w = imgLabels.cols, h = imgLabels.rows;
 
@@ -548,7 +548,7 @@ namespace cv{
             // +-+-+-+
             // |-|q|-|
             // +-+-+-+
-            //   |x|
+            //	 |x|
             //   +-+
             const int w = imgLabels.cols, h = imgLabels.rows;
 
@@ -579,6 +579,9 @@ namespace cv{
             CV_Assert(img.cols == imgLabels.cols);
             CV_Assert(connectivity == 8 || connectivity == 4);
 
+            const int nThreads = cv::getNumberOfCPUs();
+            cv::setNumThreads(nThreads);
+
             const int h = img.rows;
             const int w = img.cols;
 
@@ -603,13 +606,12 @@ namespace cv{
             P[0] = 0;
 
             cv::Range range(0, h);
-            const double nParallelStripes = std::max(1, std::min(h / 2, getNumThreads()*4));
-
             LabelT nLabels = 1;
 
             if (connectivity == 8){
-                //First scan
-                cv::parallel_for_(range, FirstScan8Connectivity(img, imgLabels, P, chunksSizeAndLabels), nParallelStripes);
+                //First scan, each thread works with chunk of img.rows/nThreads rows
+                //e.g. 300 rows, 4 threads -> each chunks is composed of 75 rows
+                cv::parallel_for_(range, FirstScan8Connectivity(img, imgLabels, P, chunksSizeAndLabels), nThreads);
 
                 //merge labels of different chunks
                 mergeLabels8Connectivity(imgLabels, P, chunksSizeAndLabels);
@@ -619,8 +621,9 @@ namespace cv{
                 }
             }
             else{
-                //First scan
-                cv::parallel_for_(range, FirstScan4Connectivity(img, imgLabels, P, chunksSizeAndLabels), nParallelStripes);
+                //First scan, each thread works with chunk of img.rows/nThreads rows
+                //e.g. 300 rows, 4 threads -> each chunks is composed of 75 rows
+                cv::parallel_for_(range, FirstScan4Connectivity(img, imgLabels, P, chunksSizeAndLabels), nThreads);
 
                 //merge labels of different chunks
                 mergeLabels4Connectivity(imgLabels, P, chunksSizeAndLabels);
@@ -635,7 +638,7 @@ namespace cv{
 
             sop.init(nLabels);
             //Second scan
-            cv::parallel_for_(range, SecondScan(imgLabels, P, sop, sopArray, nLabels), nParallelStripes);
+            cv::parallel_for_(range, SecondScan(imgLabels, P, sop, sopArray, nLabels), nThreads);
             StatsOp::mergeStats(imgLabels, sopArray, sop, nLabels);
             sop.finish();
 
@@ -836,8 +839,8 @@ namespace cv{
 
             FirstScan&  operator=(const FirstScan&) { return *this; }
 
-            void operator()(const cv::Range& range) const CV_OVERRIDE
-            {
+            void operator()(const cv::Range& range) const{
+
                 int r = range.start;
                 r += (r % 2);
 
@@ -1904,8 +1907,8 @@ namespace cv{
 
             SecondScan&  operator=(const SecondScan& ) { return *this; }
 
-            void operator()(const cv::Range& range) const CV_OVERRIDE
-            {
+            void operator()(const cv::Range& range) const{
+
                 int r = range.start;
                 r += (r % 2);
                 const int rowBegin = r;
@@ -2473,9 +2476,9 @@ namespace cv{
                 // |P -|Q -|R -|
                 // |- -|- -|- -|
                 // +---+---+---+
-                //     |X -|
-                //     |- -|
-                //     +---+
+                //	   |X -|
+                //	   |- -|
+                //	   +---+
                 const int w = imgLabels.cols, h = imgLabels.rows;
 
                 for (int r = chunksSizeAndLabels[0]; r < h; r = chunksSizeAndLabels[r]){
@@ -2527,6 +2530,9 @@ namespace cv{
             CV_Assert(img.cols == imgLabels.cols);
             CV_Assert(connectivity == 8);
 
+            const int nThreads = cv::getNumberOfCPUs();
+            cv::setNumThreads(nThreads);
+
             const int h = img.rows;
             const int w = img.cols;
 
@@ -2550,11 +2556,10 @@ namespace cv{
             P[0] = 0;
 
             cv::Range range(0, h);
-            const double nParallelStripes = std::max(1, std::min(h / 2, getNumThreads()*4));
 
             //First scan, each thread works with chunk of img.rows/nThreads rows
             //e.g. 300 rows, 4 threads -> each chunks is composed of 75 rows
-            cv::parallel_for_(range, FirstScan(img, imgLabels, P, chunksSizeAndLabels), nParallelStripes);
+            cv::parallel_for_(range, FirstScan(img, imgLabels, P, chunksSizeAndLabels), nThreads);
 
             //merge labels of different chunks
             mergeLabels(img, imgLabels, P, chunksSizeAndLabels);
@@ -2569,7 +2574,7 @@ namespace cv{
             sop.init(nLabels);
 
             //Second scan
-            cv::parallel_for_(range, SecondScan(img, imgLabels, P, sop, sopArray, nLabels), nParallelStripes);
+            cv::parallel_for_(range, SecondScan(img, imgLabels, P, sop, sopArray, nLabels), nThreads);
 
             StatsOp::mergeStats(imgLabels, sopArray, sop, nLabels);
             sop.finish();
@@ -3931,12 +3936,12 @@ namespace cv{
         int lDepth = L.depth();
         int iDepth = I.depth();
         const char *currentParallelFramework = cv::currentParallelFramework();
-        const int nThreads = cv::getNumThreads();
+        const int numberOfCPUs = cv::getNumberOfCPUs();
 
         CV_Assert(iDepth == CV_8U || iDepth == CV_8S);
 
-        //Run parallel labeling only if the rows of the image are at least twice the number of available threads
-        const bool is_parallel = currentParallelFramework != NULL && nThreads > 1 && L.rows / nThreads >= 2;
+        //Run parallel labeling only if the rows of the image are at least twice the number returned by getNumberOfCPUs
+        const bool is_parallel = currentParallelFramework != NULL && numberOfCPUs > 1 && L.rows / numberOfCPUs >= 2;
 
         if (ccltype == CCL_WU || connectivity == 4){
             // Wu algorithm is used
@@ -3980,6 +3985,7 @@ namespace cv{
         }
 
         CV_Error(CV_StsUnsupportedFormat, "unsupported label/image type");
+        return -1;
     }
 
 }
@@ -4002,6 +4008,7 @@ int cv::connectedComponents(InputArray img_, OutputArray _labels, int connectivi
     }
     else{
         CV_Error(CV_StsUnsupportedFormat, "the type of labels must be 16u or 32s");
+        return 0;
     }
 }
 

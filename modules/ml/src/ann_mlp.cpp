@@ -213,7 +213,7 @@ void ANN_MLP::setAnnealEnergyRNG(const RNG& rng)
     this_->setAnnealEnergyRNG(rng);
 }
 
-class ANN_MLPImpl CV_FINAL : public ANN_MLP_ANNEAL
+class ANN_MLPImpl : public ANN_MLP_ANNEAL
 {
 public:
     ANN_MLPImpl()
@@ -226,34 +226,23 @@ public:
 
     virtual ~ANN_MLPImpl() {}
 
-    inline TermCriteria getTermCriteria() const CV_OVERRIDE { return params.termCrit; }
-    inline void setTermCriteria(TermCriteria val) CV_OVERRIDE { params.termCrit = val; }
-    inline double getBackpropWeightScale() const CV_OVERRIDE { return params.bpDWScale; }
-    inline void setBackpropWeightScale(double val) CV_OVERRIDE { params.bpDWScale = val; }
-    inline double getBackpropMomentumScale() const CV_OVERRIDE { return params.bpMomentScale; }
-    inline void setBackpropMomentumScale(double val) CV_OVERRIDE { params.bpMomentScale = val; }
-    inline double getRpropDW0() const CV_OVERRIDE { return params.rpDW0; }
-    inline void setRpropDW0(double val) CV_OVERRIDE { params.rpDW0 = val; }
-    inline double getRpropDWPlus() const CV_OVERRIDE { return params.rpDWPlus; }
-    inline void setRpropDWPlus(double val) CV_OVERRIDE { params.rpDWPlus = val; }
-    inline double getRpropDWMinus() const CV_OVERRIDE { return params.rpDWMinus; }
-    inline void setRpropDWMinus(double val) CV_OVERRIDE { params.rpDWMinus = val; }
-    inline double getRpropDWMin() const CV_OVERRIDE { return params.rpDWMin; }
-    inline void setRpropDWMin(double val) CV_OVERRIDE { params.rpDWMin = val; }
-    inline double getRpropDWMax() const CV_OVERRIDE { return params.rpDWMax; }
-    inline void setRpropDWMax(double val) CV_OVERRIDE { params.rpDWMax = val; }
-    inline double getAnnealInitialT() const CV_OVERRIDE { return params.initialT; }
-    inline void setAnnealInitialT(double val) CV_OVERRIDE { params.initialT = val; }
-    inline double getAnnealFinalT() const CV_OVERRIDE { return params.finalT; }
-    inline void setAnnealFinalT(double val) CV_OVERRIDE { params.finalT = val; }
-    inline double getAnnealCoolingRatio() const CV_OVERRIDE { return params.coolingRatio; }
-    inline void setAnnealCoolingRatio(double val) CV_OVERRIDE { params.coolingRatio = val; }
-    inline int getAnnealItePerStep() const CV_OVERRIDE { return params.itePerStep; }
-    inline void setAnnealItePerStep(int val) CV_OVERRIDE { params.itePerStep = val; }
-    // disabled getAnnealEnergyRNG()
-    inline void setAnnealEnergyRNG(const RNG& val) CV_OVERRIDE { params.rEnergy = val; }
+    CV_IMPL_PROPERTY(TermCriteria, TermCriteria, params.termCrit)
+    CV_IMPL_PROPERTY(double, BackpropWeightScale, params.bpDWScale)
+    CV_IMPL_PROPERTY(double, BackpropMomentumScale, params.bpMomentScale)
+    CV_IMPL_PROPERTY(double, RpropDW0, params.rpDW0)
+    CV_IMPL_PROPERTY(double, RpropDWPlus, params.rpDWPlus)
+    CV_IMPL_PROPERTY(double, RpropDWMinus, params.rpDWMinus)
+    CV_IMPL_PROPERTY(double, RpropDWMin, params.rpDWMin)
+    CV_IMPL_PROPERTY(double, RpropDWMax, params.rpDWMax)
+    CV_IMPL_PROPERTY(double, AnnealInitialT, params.initialT)
+    CV_IMPL_PROPERTY(double, AnnealFinalT, params.finalT)
+    CV_IMPL_PROPERTY(double, AnnealCoolingRatio, params.coolingRatio)
+    CV_IMPL_PROPERTY(int, AnnealItePerStep, params.itePerStep)
 
-    void clear() CV_OVERRIDE
+    //CV_IMPL_PROPERTY(RNG, AnnealEnergyRNG, params.rEnergy)
+    inline void setAnnealEnergyRNG(const RNG& val) { params.rEnergy = val; }
+
+    void clear()
     {
         min_val = max_val = min_val1 = max_val1 = 0.;
         rng = RNG((uint64)-1);
@@ -264,7 +253,7 @@ public:
 
     int layer_count() const { return (int)layer_sizes.size(); }
 
-    void setTrainMethod(int method, double param1, double param2) CV_OVERRIDE
+    void setTrainMethod(int method, double param1, double param2)
     {
         if (method != ANN_MLP::RPROP && method != ANN_MLP::BACKPROP && method != ANN_MLP::ANNEAL)
             method = ANN_MLP::RPROP;
@@ -287,12 +276,12 @@ public:
         }
     }
 
-    int getTrainMethod() const CV_OVERRIDE
+    int getTrainMethod() const
     {
         return params.trainMethod;
     }
 
-    void setActivationFunction(int _activ_func, double _f_param1, double _f_param2) CV_OVERRIDE
+    void setActivationFunction(int _activ_func, double _f_param1, double _f_param2)
     {
         if( _activ_func < 0 || _activ_func > LEAKYRELU)
             CV_Error( CV_StsOutOfRange, "Unknown activation function" );
@@ -373,12 +362,12 @@ public:
         }
     }
 
-    Mat getLayerSizes() const CV_OVERRIDE
+    Mat getLayerSizes() const
     {
         return Mat_<int>(layer_sizes, true);
     }
 
-    void setLayerSizes( InputArray _layer_sizes ) CV_OVERRIDE
+    void setLayerSizes( InputArray _layer_sizes )
     {
         clear();
 
@@ -410,7 +399,7 @@ public:
         }
     }
 
-    float predict( InputArray _inputs, OutputArray _outputs, int ) const CV_OVERRIDE
+    float predict( InputArray _inputs, OutputArray _outputs, int ) const
     {
         if( !trained )
             CV_Error( CV_StsError, "The network has not been trained or loaded" );
@@ -434,7 +423,7 @@ public:
         }
 
         cv::AutoBuffer<double> _buf(buf_sz+noutputs);
-        double* buf = _buf.data();
+        double* buf = _buf;
 
         if( !_outputs.needed() )
         {
@@ -918,7 +907,7 @@ public:
         calc_output_scale( outputs, flags );
     }
 
-    bool train( const Ptr<TrainData>& trainData, int flags ) CV_OVERRIDE
+    bool train( const Ptr<TrainData>& trainData, int flags )
     {
         const int MAX_ITER = 1000;
         const double DEFAULT_EPSILON = FLT_EPSILON;
@@ -996,7 +985,7 @@ public:
             _idx[i] = i;
 
         AutoBuffer<double> _buf(max_lsize*2);
-        double* buf[] = { _buf.data(), _buf.data() + max_lsize };
+        double* buf[] = { _buf, (double*)_buf + max_lsize };
 
         const double* sw = _sw.empty() ? 0 : _sw.ptr<double>();
 
@@ -1119,7 +1108,7 @@ public:
         int dcount0;
         double* pE;
 
-        void operator()(const Range& range) const CV_OVERRIDE
+        void operator()( const Range& range ) const
         {
             double inv_count = 1./inputs.rows;
             int ivcount = ann->layer_sizes.front();
@@ -1259,7 +1248,7 @@ public:
             prev_dEdw_sign[i] = Mat::zeros(weights[i].size(), CV_8S);
             dEdw[i] = Mat::zeros(weights[i].size(), CV_64F);
         }
-        CV_Assert(total > 0);
+
         int dcount0 = max_buf_size/(2*total);
         dcount0 = std::max( dcount0, 1 );
         dcount0 = std::min( dcount0, count );
@@ -1403,7 +1392,7 @@ public:
         fs << "}" << "}";
     }
 
-    void write( FileStorage& fs ) const CV_OVERRIDE
+    void write( FileStorage& fs ) const
     {
         if( layer_sizes.empty() )
             return;
@@ -1513,7 +1502,7 @@ public:
         }
     }
 
-    void read( const FileNode& fn ) CV_OVERRIDE
+    void read( const FileNode& fn )
     {
         clear();
 
@@ -1542,28 +1531,28 @@ public:
         trained = true;
     }
 
-    Mat getWeights(int layerIdx) const CV_OVERRIDE
+    Mat getWeights(int layerIdx) const
     {
         CV_Assert( 0 <= layerIdx && layerIdx < (int)weights.size() );
         return weights[layerIdx];
     }
 
-    bool isTrained() const CV_OVERRIDE
+    bool isTrained() const
     {
         return trained;
     }
 
-    bool isClassifier() const CV_OVERRIDE
+    bool isClassifier() const
     {
         return false;
     }
 
-    int getVarCount() const CV_OVERRIDE
+    int getVarCount() const
     {
         return layer_sizes.empty() ? 0 : layer_sizes[0];
     }
 
-    String getDefaultName() const CV_OVERRIDE
+    String getDefaultName() const
     {
         return "opencv_ml_ann_mlp";
     }

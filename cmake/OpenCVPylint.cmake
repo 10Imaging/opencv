@@ -97,11 +97,7 @@ function(ocv_pylint_finalize)
     return()
   endif()
 
-  add_custom_command(
-      OUTPUT "${CMAKE_BINARY_DIR}/pylintrc"
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/platforms/scripts/pylintrc" "${CMAKE_BINARY_DIR}/pylintrc"
-      DEPENDS "${CMAKE_SOURCE_DIR}/platforms/scripts/pylintrc"
-  )
+  file(COPY "${CMAKE_SOURCE_DIR}/platforms/scripts/pylintrc" DESTINATION "${CMAKE_BINARY_DIR}")
 
   set(PYLINT_CONFIG_SCRIPT "")
   ocv_cmake_script_append_var(PYLINT_CONFIG_SCRIPT

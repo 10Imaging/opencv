@@ -1,0 +1,57 @@
+apply plugin: 'com.android.library'
+
+android {
+    compileSdkVersion 27
+    buildToolsVersion 21
+    defaultConfig {
+        minSdkVersion 21
+        targetSdkVersion 21
+        versionCode 3200
+        versionName "3.2.0-10imaging-with-contrib"
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled = false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            debuggable = true
+            jniDebuggable true
+            ndk {
+                debuggable = true
+            }
+            renderscriptDebuggable = true
+        }
+    }
+    externalNativeBuild {
+        ndkBuild {
+            path "src/main/jni/Android.mk"
+        }
+    }
+    lintOptions {
+        abortOnError = false
+        xmlReport = false
+        showAll = true
+        quiet = false
+    }
+    packagingOptions {
+        merge "lib/**/libgnustl_shared.so"
+        merge "lib/**/libc++_shared.so"
+        merge "lib/**/lib*.so"
+    }
+    splits {
+        abi {
+            enable true
+            reset()
+            include "armeabi-v7a", "arm64-v8a"
+        }
+    }
+    buildToolsVersion '27.0.2'
+}
+
+dependencies {
+    implementation "com.android.support:support-v4:27.0.3"
+}

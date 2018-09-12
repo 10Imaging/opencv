@@ -6,25 +6,9 @@
 
 #include "opencv2/ts.hpp"
 #include "opencv2/videoio.hpp"
-#include "opencv2/videoio/registry.hpp"
 #include "opencv2/imgproc/imgproc_c.h"
 
 #include "opencv2/core/private.hpp"
-
-namespace cv {
-
-inline std::ostream &operator<<(std::ostream &out, const VideoCaptureAPIs& api)
-{
-    out << cv::videoio_registry::getBackendName(api); return out;
-}
-
-static inline void PrintTo(const cv::VideoCaptureAPIs& api, std::ostream* os)
-{
-    *os << cv::videoio_registry::getBackendName(api);
-}
-
-} // namespace
-
 
 inline std::string fourccToString(int fourcc)
 {
@@ -70,16 +54,5 @@ public:
         return cvtest::TS::ptr()->get_data_path() + "video/big_buck_bunny" + ext;
     }
 };
-
-
-static inline bool isBackendAvailable(cv::VideoCaptureAPIs api, const std::vector<cv::VideoCaptureAPIs>& api_list)
-{
-    for (size_t i = 0; i < api_list.size(); i++)
-    {
-        if (api_list[i] == api)
-            return true;
-    }
-    return false;
-}
 
 #endif

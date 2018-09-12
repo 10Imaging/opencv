@@ -811,8 +811,6 @@ void videoDevice::NukeDownstream(IBaseFilter *pBF){
     IEnumPins *pins = NULL;
     PIN_INFO pininfo;
     HRESULT hr = pBF->EnumPins(&pins);
-    if (hr != S_OK || !pins)
-        return;
     pins->Reset();
     while (hr == NOERROR)
     {
@@ -840,7 +838,7 @@ void videoDevice::NukeDownstream(IBaseFilter *pBF){
             pP->Release();
         }
     }
-    pins->Release();
+    if (pins) pins->Release();
 }
 
 
@@ -1000,6 +998,17 @@ videoDevice::~videoDevice(){
                                 (pGraph)->Release();
                                 (pGraph) = 0;
     }
+
+    //delete our pointers
+    delete pDestFilter;
+    delete pVideoInputFilter;
+    delete pGrabberF;
+    delete pGrabber;
+    delete pControl;
+    delete streamConf;
+    delete pMediaEvent;
+    delete pCaptureGraph;
+    delete pGraph;
 
     DebugPrintOut("SETUP: Device %i disconnected and freed\n\n",myID);
 }
@@ -1645,7 +1654,7 @@ bool videoInput::getVideoSettingFilter(int deviceID, long Property, long &min, l
     IAMVideoProcAmp *pAMVideoProcAmp = NULL;
 
     hr = VD->pVideoInputFilter->QueryInterface(IID_IAMVideoProcAmp, (void**)&pAMVideoProcAmp);
-    if(FAILED(hr) || !pAMVideoProcAmp){
+    if(FAILED(hr)){
         DebugPrintOut("setVideoSetting - QueryInterface Error\n");
 #if 0
         if(VD->pVideoInputFilter)VD->pVideoInputFilter->Release();
@@ -1659,21 +1668,18 @@ bool videoInput::getVideoSettingFilter(int deviceID, long Property, long &min, l
 
     DebugPrintOut("Setting video setting %s.\n", propStr);
 
-    //both GetRange() and Get() will fail if the device doesn't support this property
-    hr = pAMVideoProcAmp->GetRange(Property, &min, &max, &SteppingDelta, &defaultValue, &flags);
-    if (SUCCEEDED(hr))
-    {
-        DebugPrintOut("Range for video setting %s: Min:%ld Max:%ld SteppingDelta:%ld Default:%ld Flags:%ld\n", propStr, min, max, SteppingDelta, defaultValue, flags);
-        hr = pAMVideoProcAmp->Get(Property, &currentValue, &flags);
-    }
+    pAMVideoProcAmp->GetRange(Property, &min, &max, &SteppingDelta, &defaultValue, &flags);
+    DebugPrintOut("Range for video setting %s: Min:%ld Max:%ld SteppingDelta:%ld Default:%ld Flags:%ld\n", propStr, min, max, SteppingDelta, defaultValue, flags);
+    pAMVideoProcAmp->Get(Property, &currentValue, &flags);
 
-    pAMVideoProcAmp->Release();
+    if(pAMVideoProcAmp)pAMVideoProcAmp->Release();
 #if 0
     if(VD->pVideoInputFilter)VD->pVideoInputFilter->Release();
     if(VD->pVideoInputFilter)VD->pVideoInputFilter = NULL;
 #endif
 
-    return SUCCEEDED(hr);
+    return true;
+
 }
 
 
@@ -1754,11 +1760,11 @@ bool videoInput::setVideoSettingFilter(int deviceID, long Property, long lValue,
     DebugPrintOut("Current value: %ld Flags %ld (%s)\n", CurrVal, CapsFlags, (CapsFlags == 1 ? "Auto" : (CapsFlags == 2 ? "Manual" : "Unknown")));
 
     if (useDefaultValue) {
-        hr = pAMVideoProcAmp->Set(Property, Default, VideoProcAmp_Flags_Auto);
+        pAMVideoProcAmp->Set(Property, Default, VideoProcAmp_Flags_Auto);
     }
     else{
         // Perhaps add a check that lValue and Flags are within the range acquired from GetRange above
-        hr = pAMVideoProcAmp->Set(Property, lValue, Flags);
+        pAMVideoProcAmp->Set(Property, lValue, Flags);
     }
 
     if(pAMVideoProcAmp)pAMVideoProcAmp->Release();
@@ -1767,7 +1773,7 @@ bool videoInput::setVideoSettingFilter(int deviceID, long Property, long lValue,
     if(VD->pVideoInputFilter)VD->pVideoInputFilter = NULL;
 #endif
 
-    return SUCCEEDED(hr);
+    return true;
 
 }
 
@@ -1835,19 +1841,19 @@ bool videoInput::setVideoSettingCamera(int deviceID, long Property, long lValue,
             pIAMCameraControl->Get(Property, &CurrVal, &CapsFlags);
             DebugPrintOut("Current value: %ld Flags %ld (%s)\n", CurrVal, CapsFlags, (CapsFlags == 1 ? "Auto" : (CapsFlags == 2 ? "Manual" : "Unknown")));
             if (useDefaultValue) {
-                hr = pIAMCameraControl->Set(Property, Default, CameraControl_Flags_Auto);
+                pIAMCameraControl->Set(Property, Default, CameraControl_Flags_Auto);
             }
             else
             {
                 // Perhaps add a check that lValue and Flags are within the range acquired from GetRange above
-                hr = pIAMCameraControl->Set(Property, lValue, Flags);
+                pIAMCameraControl->Set(Property, lValue, Flags);
             }
             pIAMCameraControl->Release();
 #if 0
             if(VDList[deviceID]->pVideoInputFilter)VDList[deviceID]->pVideoInputFilter->Release();
             if(VDList[deviceID]->pVideoInputFilter)VDList[deviceID]->pVideoInputFilter = NULL;
 #endif
-            return SUCCEEDED(hr);
+            return true;
         }
     }
     return false;
@@ -1872,7 +1878,7 @@ bool videoInput::getVideoSettingCamera(int deviceID, long Property, long &min, l
     IAMCameraControl *pIAMCameraControl = NULL;
 
     hr = VD->pVideoInputFilter->QueryInterface(IID_IAMCameraControl, (void**)&pIAMCameraControl);
-    if(FAILED(hr) || !pIAMCameraControl){
+    if(FAILED(hr)){
         DebugPrintOut("setVideoSetting - QueryInterface Error\n");
 #if 0
         if(VD->pVideoInputFilter)VD->pVideoInputFilter->Release();
@@ -1885,21 +1891,18 @@ bool videoInput::getVideoSettingCamera(int deviceID, long Property, long &min, l
     getCameraPropertyAsString(Property,propStr);
     DebugPrintOut("Setting video setting %s.\n", propStr);
 
-    //both GetRange() and Get() will fail if the device doesn't support this property
-    hr = pIAMCameraControl->GetRange(Property, &min, &max, &SteppingDelta, &defaultValue, &flags);
-    if (SUCCEEDED(hr))
-    {
-        DebugPrintOut("Range for video setting %s: Min:%ld Max:%ld SteppingDelta:%ld Default:%ld Flags:%ld\n", propStr, min, max, SteppingDelta, defaultValue, flags);
-        hr = pIAMCameraControl->Get(Property, &currentValue, &flags);
-    }
+    pIAMCameraControl->GetRange(Property, &min, &max, &SteppingDelta, &defaultValue, &flags);
+    DebugPrintOut("Range for video setting %s: Min:%ld Max:%ld SteppingDelta:%ld Default:%ld Flags:%ld\n", propStr, min, max, SteppingDelta, defaultValue, flags);
+    pIAMCameraControl->Get(Property, &currentValue, &flags);
 
-    pIAMCameraControl->Release();
+    if(pIAMCameraControl)pIAMCameraControl->Release();
 #if 0
     if(VD->pVideoInputFilter)VD->pVideoInputFilter->Release();
     if(VD->pVideoInputFilter)VD->pVideoInputFilter = NULL;
 #endif
 
-    return SUCCEEDED(hr);
+    return true;
+
 }
 
 
@@ -2586,7 +2589,7 @@ int videoInput::start(int deviceID, videoDevice *VD){
 
     //we do this because webcams don't have a preview mode
     hr = VD->pCaptureGraph->FindInterface(&CAPTURE_MODE, &MEDIATYPE_Video, VD->pVideoInputFilter, IID_IAMStreamConfig, (void **)&VD->streamConf);
-    if(FAILED(hr) || !VD->streamConf){
+    if(FAILED(hr)){
         DebugPrintOut("ERROR: Couldn't config the stream!\n");
         stopDevice(deviceID);
         return hr;
@@ -2728,8 +2731,14 @@ int videoInput::start(int deviceID, videoDevice *VD){
 
     //lets try freeing our stream conf here too
     //this will fail if the device is already running
-    VD->streamConf->Release();
-    VD->streamConf = NULL;
+    if(VD->streamConf){
+        VD->streamConf->Release();
+        VD->streamConf = NULL;
+    }else{
+        DebugPrintOut("ERROR: connecting device - prehaps it is already being used?\n");
+        stopDevice(deviceID);
+        return S_FALSE;
+    }
 
 
     //NULL RENDERER//
@@ -2903,7 +2912,7 @@ HRESULT videoInput::getDevice(IBaseFilter** gottaFilter, int deviceId, WCHAR * w
         // Enumerate the monikers.
         IMoniker *pMoniker = NULL;
         ULONG cFetched;
-        while ((!done) && (pEnumCat->Next(1, &pMoniker, &cFetched) == S_OK))
+        while ((pEnumCat->Next(1, &pMoniker, &cFetched) == S_OK) && (!done))
         {
             if(deviceCounter == deviceId)
             {
@@ -2941,12 +2950,6 @@ HRESULT videoInput::getDevice(IBaseFilter** gottaFilter, int deviceId, WCHAR * w
                     pMoniker->Release();
                     pMoniker = NULL;
                 }
-            }
-            else
-            {
-                // cleaning for the case when this isn't the device we are looking for
-                pMoniker->Release();
-                pMoniker = NULL;
             }
             deviceCounter++;
         }
@@ -3078,7 +3081,7 @@ HRESULT videoInput::routeCrossbar(ICaptureGraphBuilder2 **ppBuild, IBaseFilter *
     IAMCrossbar *pXBar1 = NULL;
     HRESULT hr = pBuild->FindInterface(&LOOK_UPSTREAM_ONLY, NULL, pVidFilter,
             IID_IAMCrossbar, (void**)&pXBar1);
-    if (SUCCEEDED(hr) && pXBar1)
+    if (SUCCEEDED(hr))
     {
 
         bool foundDevice = false;
@@ -3148,6 +3151,10 @@ HRESULT videoInput::routeCrossbar(ICaptureGraphBuilder2 **ppBuild, IBaseFilter *
         //we were getting a crash otherwise
         //if(Crossbar)Crossbar->Release();
         //if(Crossbar)Crossbar = NULL;
+
+        if(pXBar1)pXBar1->Release();
+        if(pXBar1)pXBar1 = NULL;
+
     }else{
         DebugPrintOut("SETUP: You are a webcam or snazzy firewire cam! No Crossbar needed\n");
         return hr;
@@ -3201,11 +3208,6 @@ double VideoCapture_DShow::getProperty(int propIdx) const
         return g_VI.getFourcc(m_index);
     case CV_CAP_PROP_FPS:
         return g_VI.getFPS(m_index);
-    case CV_CAP_PROP_AUTOFOCUS:
-      // Flags indicate whether or not autofocus is enabled
-      if (g_VI.getVideoSettingCamera(m_index, CameraControl_Focus, min_value, max_value, stepping_delta, current_value, flags, defaultValue))
-        return (double)flags;
-      return -1;
 
     // video filter properties
     case CV_CAP_PROP_BRIGHTNESS:
@@ -3220,7 +3222,6 @@ double VideoCapture_DShow::getProperty(int propIdx) const
     case CV_CAP_PROP_GAIN:
         if (g_VI.getVideoSettingFilter(m_index, g_VI.getVideoPropertyFromCV(propIdx), min_value, max_value, stepping_delta, current_value, flags, defaultValue))
             return (double)current_value;
-        return -1;
 
     // camera properties
     case CV_CAP_PROP_PAN:
@@ -3232,7 +3233,6 @@ double VideoCapture_DShow::getProperty(int propIdx) const
     case CV_CAP_PROP_FOCUS:
         if (g_VI.getVideoSettingCamera(m_index, g_VI.getCameraPropertyFromCV(propIdx), min_value, max_value, stepping_delta, current_value, flags, defaultValue))
             return (double)current_value;
-        return -1;
     }
 
     if (propIdx == CV_CAP_PROP_SETTINGS )
@@ -3270,7 +3270,6 @@ bool VideoCapture_DShow::setProperty(int propIdx, double propVal)
         break;
 
     case CV_CAP_PROP_FPS:
-    {
         int fps = cvRound(propVal);
         if (fps != g_VI.getFPS(m_index))
         {
@@ -3282,19 +3281,6 @@ bool VideoCapture_DShow::setProperty(int propIdx, double propVal)
                 g_VI.setupDevice(m_index);
         }
         return g_VI.isDeviceSetup(m_index);
-    }
-
-    case CV_CAP_PROP_AUTOFOCUS:
-    {
-        // Flags are required to toggle autofocus or not, but the setProperty interface does not support multiple parameters
-        bool enabled = cvRound(propVal) == 1;
-        long minFocus, maxFocus, delta, currentFocus, flags, defaultValue;
-        if (!g_VI.getVideoSettingCamera(m_index, CameraControl_Focus, minFocus, maxFocus, delta, currentFocus, flags, defaultValue))
-        {
-            return false;
-        }
-        return g_VI.setVideoSettingCamera(m_index, CameraControl_Focus, currentFocus, enabled ? CameraControl_Flags_Auto | CameraControl_Flags_Manual : CameraControl_Flags_Manual, enabled ? true : false);
-    }
     }
 
     if (handled)

@@ -6,7 +6,6 @@
 // Third party copyrights are property of their respective owners.
 
 #include "precomp.hpp"
-#include <opencv2/dnn/shape_utils.hpp>
 #include "op_halide.hpp"
 
 #ifdef HAVE_HALIDE
@@ -37,7 +36,7 @@ static MatShape getBufferShape(const MatShape& shape)
 
 static MatShape getBufferShape(const MatSize& size)
 {
-    return getBufferShape(shape(size));
+    return getBufferShape(MatShape(size.p, size.p + size[-1]));
 }
 
 Halide::Buffer<float> wrapToHalideBuffer(const Mat& mat)
@@ -161,7 +160,7 @@ void HalideBackendWrapper::setHostDirty()
 
 void getCanonicalSize(const MatSize& size, int* w, int* h, int* c, int* n)
 {
-    getCanonicalSize(shape(size), w, h, c, n);
+    getCanonicalSize(MatShape(size.p, size.p + size[-1]), w, h, c, n);
 }
 
 void getCanonicalSize(const MatShape& shape, int* width, int* height,

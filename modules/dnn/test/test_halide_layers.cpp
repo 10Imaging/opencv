@@ -12,87 +12,53 @@
 
 namespace opencv_test { namespace {
 
+#ifdef HAVE_HALIDE
 using namespace cv;
 using namespace cv::dnn;
 using namespace testing;
 
-static void test(Mat& input, Net& net, Backend backendId, Target targetId, bool skipCheck = false)
+static void test(LayerParams& params, Mat& input)
 {
-    DNNTestLayer::checkBackend(backendId, targetId);
     randu(input, -1.0f, 1.0f);
 
-    net.setInput(input);
-    net.setPreferableBackend(DNN_BACKEND_OPENCV);
-    Mat outputDefault = net.forward().clone();
-
-    net.setPreferableBackend(backendId);
-    net.setPreferableTarget(targetId);
-    Mat outputHalide = net.forward().clone();
-
-    if (skipCheck)
-        return;
-
-    double l1, lInf;
-    DNNTestLayer::getDefaultThresholds(backendId, targetId, &l1, &lInf);
-    normAssert(outputDefault, outputHalide, "", l1, lInf);
-}
-
-static void test(LayerParams& params, Mat& input, Backend backendId, Target targetId, bool skipCheck = false)
-{
     Net net;
-    net.addLayerToPrev(params.name, params.type, params);
-    test(input, net, backendId, targetId, skipCheck);
-}
+    int lid = net.addLayer(params.name, params.type, params);
+    net.connect(0, 0, lid, 0);
 
-static testing::internal::ParamGenerator<tuple<Backend, Target> > dnnBackendsAndTargetsWithHalide()
-{
-    static const tuple<Backend, Target> testCases[] = {
-#ifdef HAVE_HALIDE
-        tuple<Backend, Target>(DNN_BACKEND_HALIDE, DNN_TARGET_CPU),
-        tuple<Backend, Target>(DNN_BACKEND_HALIDE, DNN_TARGET_OPENCL),
-#endif
-#ifdef HAVE_INF_ENGINE
-        tuple<Backend, Target>(DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_CPU),
-        tuple<Backend, Target>(DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_OPENCL),
-        tuple<Backend, Target>(DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_OPENCL_FP16),
-        tuple<Backend, Target>(DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_MYRIAD),
-#endif
-        tuple<Backend, Target>(DNN_BACKEND_OPENCV, DNN_TARGET_OPENCL),
-        tuple<Backend, Target>(DNN_BACKEND_OPENCV, DNN_TARGET_OPENCL_FP16)
-    };
-    return testing::ValuesIn(testCases);
-}
+    net.setInput(input);
+    Mat outputDefault = net.forward(params.name).clone();
 
-class Test_Halide_layers : public DNNTestLayer {};
+    net.setPreferableBackend(DNN_BACKEND_HALIDE);
+    Mat outputHalide = net.forward(params.name).clone();
+    normAssert(outputDefault, outputHalide);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Padding
 ////////////////////////////////////////////////////////////////////////////////
-TEST_P(Test_Halide_layers, Padding)
+TEST(Padding_Halide, Accuracy)
 {
     static const int kNumRuns = 10;
     std::vector<int> paddings(8);
-    cv::RNG& rng = cv::theRNG();
     for (int t = 0; t < kNumRuns; ++t)
     {
         for (int i = 0; i < paddings.size(); ++i)
-            paddings[i] = rng(5);
+            paddings[i] = rand() % 5;
 
         LayerParams lp;
         lp.set("paddings", DictValue::arrayInt<int*>(&paddings[0], paddings.size()));
         lp.type = "Padding";
         lp.name = "testLayer";
 
-        int sz[] = {1 + (int)rng(10), 1 + (int)rng(10), 1 + (int)rng(10), 1 + (int)rng(10)};
-        Mat input(4, &sz[0], CV_32F);
-        test(lp, input, backend, target);
+        Mat input({1 + rand() % 10, 1 + rand() % 10, 1 + rand() % 10, 1 + rand() % 10}, CV_32F);
+        test(lp, input);
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Convolution
 ////////////////////////////////////////////////////////////////////////////////
-typedef TestWithParam<tuple<Vec3i, Size, Size, Size, Size, Size, bool, tuple<Backend, Target> > > Convolution;
+typedef TestWithParam<tuple<Vec3i, Size, Size, Size, Size, Size, bool> > Convolution;
 TEST_P(Convolution, Accuracy)
 {
     int inChannels = get<0>(GetParam())[0];
@@ -104,24 +70,8 @@ TEST_P(Convolution, Accuracy)
     Size pad = get<4>(GetParam());
     Size dilation = get<5>(GetParam());
     bool hasBias = get<6>(GetParam());
-    Backend backendId = get<0>(get<7>(GetParam()));
-    Target targetId = get<1>(get<7>(GetParam()));
 
-    if (backendId == DNN_BACKEND_INFERENCE_ENGINE && targetId == DNN_TARGET_MYRIAD)
-        throw SkipTestException("");
-
-    bool skipCheck = false;
-    if (cvtest::skipUnstableTests && backendId == DNN_BACKEND_OPENCV &&
-        (targetId == DNN_TARGET_OPENCL || targetId == DNN_TARGET_OPENCL_FP16) &&
-        (
-            (kernel == Size(3, 1) && stride == Size(1, 1) && pad == Size(0, 1)) ||
-            (stride.area() > 1 && !(pad.width == 0 && pad.height == 0))
-        )
-    )
-        skipCheck = true;
-
-    int sz[] = {outChannels, inChannels / group, kernel.height, kernel.width};
-    Mat weights(4, &sz[0], CV_32F);
+    Mat weights({outChannels, inChannels / group, kernel.height, kernel.width}, CV_32F);
     randu(weights, -1.0f, 1.0f);
 
     LayerParams lp;
@@ -141,15 +91,12 @@ TEST_P(Convolution, Accuracy)
     lp.blobs.push_back(weights);
     if (hasBias)
     {
-        Mat bias(1, outChannels, CV_32F);
+        Mat bias({outChannels}, CV_32F);
         randu(bias, -1.0f, 1.0f);
         lp.blobs.push_back(bias);
     }
-    int inpSz[] = {1, inChannels, inSize.height, inSize.width};
-    Mat input(4, &inpSz[0], CV_32F);
-    test(lp, input, backendId, targetId, skipCheck);
-    if (skipCheck)
-        throw SkipTestException("Skip checks in unstable test");
+    Mat input({1, inChannels, inSize.height, inSize.width}, CV_32F);
+    test(lp, input);
 }
 
 INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, Convolution, Combine(
@@ -161,14 +108,13 @@ INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, Convolution, Combine(
 /*stride*/   Values(Size(1, 1), Size(2, 2)),
 /*pad*/      Values(Size(1, 0), Size(0, 1)),
 /*dilation*/ Values(Size(1, 1), Size(2, 2)),
-/*has bias*/ Bool(),
-             dnnBackendsAndTargetsWithHalide()
+/*has bias*/ Bool()
 ));
 
 ////////////////////////////////////////////////////////////////////////////////
 // Deconvolution
 ////////////////////////////////////////////////////////////////////////////////
-typedef TestWithParam<tuple<Vec3i, Size, Size, Size, Size, Vec4i, bool, tuple<Backend, Target> > > Deconvolution;
+typedef TestWithParam<tuple<Vec3i, Size, Size, Size, Size, Vec4i, bool> > Deconvolution;
 TEST_P(Deconvolution, Accuracy)
 {
     int inChannels = get<0>(GetParam())[0];
@@ -181,14 +127,8 @@ TEST_P(Deconvolution, Accuracy)
     Size stride = Size(get<5>(GetParam())[0], get<5>(GetParam())[1]);
     Size adjPad = Size(get<5>(GetParam())[2], get<5>(GetParam())[3]);
     bool hasBias = get<6>(GetParam());
-    Backend backendId = get<0>(get<7>(GetParam()));
-    Target targetId = get<1>(get<7>(GetParam()));
-    if (backendId == DNN_BACKEND_INFERENCE_ENGINE && targetId == DNN_TARGET_CPU &&
-        dilation.width == 2 && dilation.height == 2)
-        throw SkipTestException("");
 
-    int sz[] = {inChannels, outChannels / group, kernel.height, kernel.width};
-    Mat weights(4, &sz[0], CV_32F);
+    Mat weights({inChannels, outChannels / group, kernel.height, kernel.width}, CV_32F);
     randu(weights, -1.0f, 1.0f);
 
     LayerParams lp;
@@ -210,13 +150,12 @@ TEST_P(Deconvolution, Accuracy)
     lp.blobs.push_back(weights);
     if (hasBias)
     {
-        Mat bias(1, outChannels, CV_32F);
+        Mat bias({outChannels}, CV_32F);
         randu(bias, -1.0f, 1.0f);
         lp.blobs.push_back(bias);
     }
-    int inpSz[] = {1, inChannels, inSize.height, inSize.width};
-    Mat input(4, &inpSz[0], CV_32F);
-    test(lp, input, backendId, targetId);
+    Mat input({1, inChannels, inSize.height, inSize.width}, CV_32F);
+    test(lp, input);
 }
 
 INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, Deconvolution, Combine(
@@ -227,14 +166,13 @@ INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, Deconvolution, Combine(
 /*pad*/      Values(Size(1, 0), Size(0, 1)),
 /*dilation*/ Values(Size(1, 1), Size(2, 2)),
 /*stride, adj. pad*/ Values(Vec4i(1,1, 0,0), Vec4i(2,2, 1,0), Vec4i(1,2, 0,1)),
-/*has bias*/ Bool(),
-             dnnBackendsAndTargetsWithHalide()
+/*has bias*/ Bool()
 ));
 
 ////////////////////////////////////////////////////////////////////////////////
 // LRN
 ////////////////////////////////////////////////////////////////////////////////
-typedef TestWithParam<tuple<Vec3i, int, Vec3f, bool, std::string, tuple<Backend, Target> > > LRN;
+typedef TestWithParam<tuple<Vec3i, int, Vec3f, bool, std::string> > LRN;
 TEST_P(LRN, Accuracy)
 {
     int inChannels = get<0>(GetParam())[0];
@@ -245,10 +183,6 @@ TEST_P(LRN, Accuracy)
     float bias = get<2>(GetParam())[2];
     bool normBySize = get<3>(GetParam());
     std::string nrmType = get<4>(GetParam());
-    Backend backendId = get<0>(get<5>(GetParam()));
-    Target targetId = get<1>(get<5>(GetParam()));
-    if (backendId == DNN_BACKEND_INFERENCE_ENGINE)
-        throw SkipTestException("");
 
     LayerParams lp;
     lp.set("norm_region", nrmType);
@@ -260,9 +194,8 @@ TEST_P(LRN, Accuracy)
     lp.type = "LRN";
     lp.name = "testLayer";
 
-    int sz[] = {1, inChannels, inSize.height, inSize.width};
-    Mat input(4, &sz[0], CV_32F);
-    test(lp, input, backendId, targetId);
+    Mat input({1, inChannels, inSize.height, inSize.width}, CV_32F);
+    test(lp, input);
 }
 
 INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, LRN, Combine(
@@ -272,24 +205,19 @@ INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, LRN, Combine(
 /*alpha, beta,*/        Vec3f(1.0f, 0.9f, 1.1f), Vec3f(1.0f, 1.1f, 0.9f),
 /*bias */               Vec3f(1.1f, 0.9f, 1.0f), Vec3f(1.1f, 1.0f, 0.9f)),
 /*norm_by_size*/ Bool(),
-/*norm_type*/    Values("ACROSS_CHANNELS", "WITHIN_CHANNEL"),
-                 dnnBackendsAndTargetsWithHalide()
+/*norm_type*/    Values("ACROSS_CHANNELS", "WITHIN_CHANNEL")
 ));
 
 ////////////////////////////////////////////////////////////////////////////////
 // Average pooling
 ////////////////////////////////////////////////////////////////////////////////
-typedef TestWithParam<tuple<int, Size, Size, Size, tuple<Backend, Target> > > AvePooling;
+typedef TestWithParam<tuple<int, Size, Size, Size> > AvePooling;
 TEST_P(AvePooling, Accuracy)
 {
     int inChannels = get<0>(GetParam());
     Size outSize = get<1>(GetParam());;  // Input size will be computed from parameters.
     Size kernel = get<2>(GetParam());
     Size stride = get<3>(GetParam());
-    Backend backendId = get<0>(get<4>(GetParam()));
-    Target targetId = get<1>(get<4>(GetParam()));
-    if (backendId == DNN_BACKEND_INFERENCE_ENGINE && targetId == DNN_TARGET_MYRIAD)
-        throw SkipTestException("");
 
     const int inWidth = (outSize.width - 1) * stride.width + kernel.width;
     const int inHeight = (outSize.height - 1) * stride.height + kernel.height;
@@ -303,23 +231,21 @@ TEST_P(AvePooling, Accuracy)
     lp.type = "Pooling";
     lp.name = "testLayer";
 
-    int sz[] = {1, inChannels, inHeight, inWidth};
-    Mat input(4, &sz[0], CV_32F);
-    test(lp, input, backendId, targetId);
+    Mat input({1, inChannels, inHeight, inWidth}, CV_32F);
+    test(lp, input);
 }
 
 INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, AvePooling, Combine(
 /*in channels*/ Values(3, 4),
 /*out size*/    Values(Size(1, 1), Size(2, 2), Size(3, 2), Size(4, 7)),
 /*kernel*/      Values(Size(1, 1), Size(2, 2), Size(3, 3), Size(3, 2)),
-/*stride*/      Values(Size(1, 1), Size(2, 2), Size(3, 2)),
-                dnnBackendsAndTargetsWithHalide()
+/*stride*/      Values(Size(1, 1), Size(2, 2), Size(3, 2))
 ));
 
 ////////////////////////////////////////////////////////////////////////////////
 // Maximum pooling
 ////////////////////////////////////////////////////////////////////////////////
-typedef TestWithParam<tuple<int, Size, Size, Size, Size, tuple<Backend, Target> > > MaxPooling;
+typedef TestWithParam<tuple<int, Size, Size, Size, Size> > MaxPooling;
 TEST_P(MaxPooling, Accuracy)
 {
     int inChannels = get<0>(GetParam());
@@ -327,8 +253,6 @@ TEST_P(MaxPooling, Accuracy)
     Size kernel = get<2>(GetParam());
     Size stride = get<3>(GetParam());
     Size pad = get<4>(GetParam());
-    Backend backendId = get<0>(get<5>(GetParam()));
-    Target targetId = get<1>(get<5>(GetParam()));
 
     LayerParams lp;
     lp.set("pool", "max");
@@ -341,9 +265,8 @@ TEST_P(MaxPooling, Accuracy)
     lp.type = "Pooling";
     lp.name = "testLayer";
 
-    int sz[] = {1, inChannels, inSize.height, inSize.width};
-    Mat input(4, &sz[0], CV_32F);
-    test(lp, input, backendId, targetId);
+    Mat input({1, inChannels, inSize.height, inSize.width}, CV_32F);
+    test(lp, input);
 }
 
 INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, MaxPooling, Combine(
@@ -351,24 +274,19 @@ INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, MaxPooling, Combine(
 /*in size*/     Values(Size(5, 5), Size(7, 6)),
 /*kernel*/      Values(Size(2, 2), Size(3, 3), Size(3, 2)),
 /*stride*/      Values(Size(1, 1), Size(2, 2), Size(3, 2)),
-/*pad*/         Values(Size(0, 0), Size(1, 1), Size(0, 1)),
-                dnnBackendsAndTargetsWithHalide()
+/*pad*/         Values(Size(0, 0), Size(1, 1), Size(0, 1))
 ));
 
 ////////////////////////////////////////////////////////////////////////////////
 // Fully-connected
 ////////////////////////////////////////////////////////////////////////////////
-typedef TestWithParam<tuple<int, Size, int, bool, tuple<Backend, Target> > > FullyConnected;
+typedef TestWithParam<tuple<int, Size, int, bool> > FullyConnected;
 TEST_P(FullyConnected, Accuracy)
 {
     int inChannels = get<0>(GetParam());
     Size inSize = get<1>(GetParam());
     int outChannels = get<2>(GetParam());
     bool hasBias = get<3>(GetParam());
-    Backend backendId = get<0>(get<4>(GetParam()));
-    Target targetId = get<1>(get<4>(GetParam()));
-    if (backendId == DNN_BACKEND_INFERENCE_ENGINE)
-        throw SkipTestException("");
 
     Mat weights(outChannels, inChannels * inSize.height * inSize.width, CV_32F);
     randu(weights, -1.0f, 1.0f);
@@ -384,50 +302,39 @@ TEST_P(FullyConnected, Accuracy)
     lp.type = "InnerProduct";
     lp.name = "testLayer";
 
-    int sz[] = {1, inChannels, inSize.height, inSize.width};
-    Mat input(4, &sz[0], CV_32F);
-    test(lp, input, backendId, targetId);
+    Mat input({1, inChannels, inSize.height, inSize.width}, CV_32F);
+    test(lp, input);
 }
 
 INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, FullyConnected, Combine(
 /*in channels*/  Values(3, 4),
 /*in size*/      Values(Size(5, 4), Size(4, 5), Size(1, 1)),
 /*out channels*/ Values(3, 4),
-/*has bias*/     Bool(),
-                 dnnBackendsAndTargetsWithHalide()
+/*has bias*/     Bool()
 ));
 
 ////////////////////////////////////////////////////////////////////////////////
 // SoftMax
 ////////////////////////////////////////////////////////////////////////////////
-typedef TestWithParam<tuple<int,  tuple<Backend, Target> > > SoftMax;
+typedef TestWithParam<tuple<int> > SoftMax;
 TEST_P(SoftMax, Accuracy)
 {
     int inChannels = get<0>(GetParam());
-    Backend backendId = get<0>(get<1>(GetParam()));
-    Target targetId = get<1>(get<1>(GetParam()));
     LayerParams lp;
     lp.type = "SoftMax";
     lp.name = "testLayer";
 
-    int sz[] = {1, inChannels, 1, 1};
-    Mat input(4, &sz[0], CV_32F);
-    test(lp, input, backendId, targetId);
+    Mat input({1, inChannels, 1, 1}, CV_32F);
+    test(lp, input);
 }
 
-INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, SoftMax, Combine(
-    Values(3, 4, 5, 1024),
-    dnnBackendsAndTargetsWithHalide()
-));
+INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, SoftMax, Values(3, 4, 5, 1024));
 
 //////////////////////////////////////////////////////////////////////////////
 // Max pooling - unpooling
 //////////////////////////////////////////////////////////////////////////////
-TEST_P(Test_Halide_layers, MaxPoolUnpool)
+TEST(MaxPoolUnpool_Halide, Accuracy)
 {
-    if (backend == DNN_BACKEND_INFERENCE_ENGINE)
-        throw SkipTestException("");
-
     LayerParams pool;
     pool.set("pool", "max");
     pool.set("kernel_w", 2);
@@ -457,9 +364,15 @@ TEST_P(Test_Halide_layers, MaxPoolUnpool)
     net.connect(poolId, 0, unpoolId, 0);
     net.connect(poolId, 1, unpoolId, 1);
 
-    int sz[] = {1, 1, 4, 4};
-    Mat input(4, &sz[0], CV_32F);
-    test(input, net, backend, target);
+    Mat input({1, 1, 4, 4}, CV_32F);
+    randu(input, -1.0f, 1.0f);
+    net.setInput(input);
+    Mat outputDefault = net.forward("testUnpool").clone();
+
+    net.setPreferableBackend(DNN_BACKEND_HALIDE);
+    net.setInput(input);
+    Mat outputHalide = net.forward("testUnpool").clone();
+    normAssert(outputDefault, outputHalide);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -467,7 +380,7 @@ TEST_P(Test_Halide_layers, MaxPoolUnpool)
 ////////////////////////////////////////////////////////////////////////////////
 static const int kNumChannels = 3;
 
-void testInPlaceActivation(LayerParams& lp, Backend backendId, Target targetId)
+void testInPlaceActivation(LayerParams& lp)
 {
     EXPECT_FALSE(lp.name.empty());
 
@@ -484,19 +397,23 @@ void testInPlaceActivation(LayerParams& lp, Backend backendId, Target targetId)
     net.connect(0, 0, poolId, 0);
     net.addLayerToPrev(lp.name, lp.type, lp);
 
-    int sz[] = {1, kNumChannels, 10, 10};
-    Mat input(4, &sz[0], CV_32F);
-    test(input, net, backendId, targetId);
+    Mat input({1, kNumChannels, 10, 10}, CV_32F);
+    randu(input, -1.0f, 1.0f);
+    net.setInput(input);
+    Mat outputDefault = net.forward(lp.name).clone();
+
+    net.setInput(input);
+    net.setPreferableBackend(DNN_BACKEND_HALIDE);
+    Mat outputHalide = net.forward(lp.name).clone();
+    normAssert(outputDefault, outputHalide);
 }
 
-typedef TestWithParam<tuple<bool, bool, float, tuple<Backend, Target> > > BatchNorm;
+typedef TestWithParam<tuple<bool, bool, float> > BatchNorm;
 TEST_P(BatchNorm, Accuracy)
 {
     bool hasWeights = get<0>(GetParam());
     bool hasBias = get<1>(GetParam());
     float epsilon = get<2>(GetParam());
-    Backend backendId = get<0>(get<3>(GetParam()));
-    Target targetId = get<1>(get<3>(GetParam()));
 
     LayerParams lp;
     lp.set("has_weight", hasWeights);
@@ -507,66 +424,56 @@ TEST_P(BatchNorm, Accuracy)
 
     lp.blobs.reserve(4);
     for (int i = 0; i < 3; ++i)
-        lp.blobs.push_back(Mat(1, kNumChannels, CV_32F));
+        lp.blobs.push_back(Mat({kNumChannels}, CV_32F));
     if (hasBias || hasWeights)
-        lp.blobs.push_back(Mat(1, kNumChannels, CV_32F));
+        lp.blobs.push_back(Mat({kNumChannels}, CV_32F));
 
-    for (int i = 0; i < lp.blobs.size(); ++i)
-        randu(lp.blobs[i], 0.0f, 1.0f);
+    for (Mat& m : lp.blobs)
+        randu(m, 0.0f, 1.0f);
 
-    testInPlaceActivation(lp, backendId, targetId);
+    testInPlaceActivation(lp);
 }
 
 INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, BatchNorm, Combine(
 /*has weights*/ Bool(),
 /*has bias*/    Bool(),
-/*epsilon*/     Values(1e-3f, 1e-5f),
-                dnnBackendsAndTargetsWithHalide()
+/*epsilon*/     Values(1e-3f, 1e-5f)
 ));
 
-typedef TestWithParam<tuple<float, tuple<Backend, Target> > > ReLU;
+typedef TestWithParam<tuple<float> > ReLU;
 TEST_P(ReLU, Accuracy)
 {
     float negativeSlope = get<0>(GetParam());
-    Backend backendId = get<0>(get<1>(GetParam()));
-    Target targetId = get<1>(get<1>(GetParam()));
 
     LayerParams lp;
     lp.set("negative_slope", negativeSlope);
     lp.type = "ReLU";
     lp.name = "testLayer";
-    testInPlaceActivation(lp, backendId, targetId);
+    testInPlaceActivation(lp);
 }
 
-INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, ReLU, Combine(
-/*negative slope*/ Values(2.0f, 0.3f, -0.1f, 0.0f),
-                   dnnBackendsAndTargetsWithHalide()
+INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, ReLU, Values(
+/*negative slope*/ 2.0f, 0.3f, -0.1f, 0.0f
 ));
 
-typedef TestWithParam<tuple<std::string, tuple<Backend, Target> > > NoParamActivation;
+typedef TestWithParam<tuple<std::string> > NoParamActivation;
 TEST_P(NoParamActivation, Accuracy)
 {
-    Backend backendId = get<0>(get<1>(GetParam()));
-    Target targetId = get<1>(get<1>(GetParam()));
-
     LayerParams lp;
     lp.type = get<0>(GetParam());
     lp.name = "testLayer";
-    testInPlaceActivation(lp, backendId, targetId);
+    testInPlaceActivation(lp);
 }
-INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, NoParamActivation, Combine(
-/*type*/ Values("TanH", "Sigmoid", "AbsVal", "BNLL"),
-         dnnBackendsAndTargetsWithHalide()
+INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, NoParamActivation, Values(
+/*type*/ "TanH", "Sigmoid", "AbsVal", "BNLL"
 ));
 
-typedef TestWithParam<tuple<Vec3f, tuple<Backend, Target> > > Power;
+typedef TestWithParam<tuple<Vec3f> > Power;
 TEST_P(Power, Accuracy)
 {
     float power = get<0>(GetParam())[0];
     float scale = get<0>(GetParam())[1];
     float shift = get<0>(GetParam())[2];
-    Backend backendId = get<0>(get<1>(GetParam()));
-    Target targetId = get<1>(get<1>(GetParam()));
 
     LayerParams lp;
     lp.set("power", power);
@@ -574,52 +481,46 @@ TEST_P(Power, Accuracy)
     lp.set("shift", shift);
     lp.type = "Power";
     lp.name = "testLayer";
-    testInPlaceActivation(lp, backendId, targetId);
+    testInPlaceActivation(lp);
 }
 
-INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, Power, Combine(
+INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, Power,
 /*power, scale, shift*/ Values(Vec3f(0.9f, 1.0f, 1.1f), Vec3f(0.9f, 1.1f, 1.0f),
                                Vec3f(1.0f, 0.9f, 1.1f), Vec3f(1.0f, 1.1f, 0.9f),
-                               Vec3f(1.1f, 0.9f, 1.0f), Vec3f(1.1f, 1.0f, 0.9f)),
-                        dnnBackendsAndTargetsWithHalide()
-));
+                               Vec3f(1.1f, 0.9f, 1.0f), Vec3f(1.1f, 1.0f, 0.9f))
+);
 
-TEST_P(Test_Halide_layers, ChannelsPReLU)
+TEST(ChannelsPReLU, Accuracy)
 {
     LayerParams lp;
     lp.type = "ChannelsPReLU";
     lp.name = "testLayer";
-    lp.blobs.push_back(Mat(1, kNumChannels, CV_32F));
+    lp.blobs.push_back(Mat({kNumChannels}, CV_32F));
     randu(lp.blobs[0], -1.0f, 1.0f);
 
-    testInPlaceActivation(lp, backend, target);
+    testInPlaceActivation(lp);
 }
 
-typedef TestWithParam<tuple<bool, tuple<Backend, Target> > > Scale;
+typedef TestWithParam<tuple<bool> > Scale;
 TEST_P(Scale, Accuracy)
 {
     bool hasBias = get<0>(GetParam());
-    Backend backendId = get<0>(get<1>(GetParam()));
-    Target targetId = get<1>(get<1>(GetParam()));
 
     LayerParams lp;
     lp.set("bias_term", hasBias);
     lp.type = "Scale";
     lp.name = "testLayer";
-    lp.blobs.push_back(Mat(1, kNumChannels, CV_32F));
+    lp.blobs.push_back(Mat({kNumChannels}, CV_32F));
     randu(lp.blobs[0], -1.0f, 1.0f);
     if (hasBias)
     {
-        lp.blobs.push_back(Mat(1, kNumChannels, CV_32F));
+        lp.blobs.push_back(Mat({kNumChannels}, CV_32F));
         randu(lp.blobs[1], -1.0f, 1.0f);
     }
-    testInPlaceActivation(lp, backendId, targetId);
+    testInPlaceActivation(lp);
 }
 
-INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, Scale, Combine(
-    Bool(),
-    dnnBackendsAndTargetsWithHalide()
-));
+INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, Scale, Values(true, false));
 
 ////////////////////////////////////////////////////////////////////////////////
 // Concat layer
@@ -629,13 +530,11 @@ INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, Scale, Combine(
 //      `--- conv ----^ ^ ^
 //      `---- ... ------' '
 //      `-----------------'
-typedef TestWithParam<tuple<Vec3i, Vec3i, tuple<Backend, Target> > > Concat;
+typedef TestWithParam<tuple<Vec3i, Vec3i> > Concat;
 TEST_P(Concat, Accuracy)
 {
     Vec3i inSize = get<0>(GetParam());
     Vec3i numChannels = get<1>(GetParam());
-    Backend backendId = get<0>(get<2>(GetParam()));
-    Target targetId = get<1>(get<2>(GetParam()));
 
     Net net;
 
@@ -646,8 +545,7 @@ TEST_P(Concat, Accuracy)
         if (!numChannels[i])
             break;
 
-        int sz[] = {numChannels[i], inSize[0], 1, 1};
-        Mat weights(4, &sz[0], CV_32F);
+        Mat weights({numChannels[i], inSize[0], 1, 1}, CV_32F);
         randu(weights, -1.0f, 1.0f);
 
         LayerParams convParam;
@@ -676,15 +574,20 @@ TEST_P(Concat, Accuracy)
         net.connect(convLayerIds[i], 0, concatId, i + 1);
     }
 
-    int sz[] = {1, inSize[0], inSize[1], inSize[2]};
-    Mat input(4, &sz[0], CV_32F);
-    test(input, net, backendId, targetId);
+    Mat input({1, inSize[0], inSize[1], inSize[2]}, CV_32F);
+    randu(input, -1.0f, 1.0f);
+
+    net.setInput(input);
+    Mat outputDefault = net.forward(concatParam.name).clone();
+
+    net.setPreferableBackend(DNN_BACKEND_HALIDE);
+    Mat outputHalide = net.forward(concatParam.name).clone();
+    normAssert(outputDefault, outputHalide);
 }
 
 INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, Concat, Combine(
 /*input size*/ Values(Vec3i(1, 4, 5), Vec3i(2, 8, 6)),
-/*channels*/   Values(Vec3i(2, 0, 0), Vec3i(3, 4, 0), Vec3i(1, 6, 2)),
-               dnnBackendsAndTargetsWithHalide()
+/*channels*/   Values(Vec3i(2, 0, 0), Vec3i(3, 4, 0), Vec3i(1, 6, 2))
 ));
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -695,23 +598,20 @@ INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, Concat, Combine(
 //      `--- conv ----^ ^ ^
 //      `---- ... ------' '
 //      `-----------------'
-typedef TestWithParam<tuple<Vec3i, std::string, int, bool, tuple<Backend, Target> > > Eltwise;
+typedef TestWithParam<tuple<Vec3i, std::string, int, bool> > Eltwise;
 TEST_P(Eltwise, Accuracy)
 {
     Vec3i inSize = get<0>(GetParam());
     std::string op = get<1>(GetParam());
     int numConv = get<2>(GetParam());
     bool weighted = get<3>(GetParam());
-    Backend backendId = get<0>(get<4>(GetParam()));
-    Target targetId = get<1>(get<4>(GetParam()));
 
     Net net;
 
     std::vector<int> convLayerIds(numConv);
     for (int i = 0; i < numConv; ++i)
     {
-        int sz[] = {inSize[0], inSize[0], 1, 1};
-        Mat weights(4, &sz[0], CV_32F);
+        Mat weights({inSize[0], inSize[0], 1, 1}, CV_32F);
         randu(weights, -1.0f, 1.0f);
 
         LayerParams convParam;
@@ -733,7 +633,7 @@ TEST_P(Eltwise, Accuracy)
     eltwiseParam.set("operation", op);
     if (op == "sum" && weighted)
     {
-        RNG& rng = cv::theRNG();
+        RNG rng = cv::theRNG();
         std::vector<float> coeff(1 + numConv);
         for (int i = 0; i < coeff.size(); ++i)
         {
@@ -750,23 +650,27 @@ TEST_P(Eltwise, Accuracy)
         net.connect(convLayerIds[i], 0, eltwiseId, i + 1);
     }
 
-    int sz[] = {1, inSize[0], inSize[1], inSize[2]};
-    Mat input(4, &sz[0], CV_32F);
-    test(input, net, backendId, targetId);
+    Mat input({1, inSize[0], inSize[1], inSize[2]}, CV_32F);
+    randu(input, -1.0f, 1.0f);
+
+    net.setInput(input);
+    Mat outputDefault = net.forward(eltwiseParam.name).clone();
+
+    net.setPreferableBackend(DNN_BACKEND_HALIDE);
+    Mat outputHalide = net.forward(eltwiseParam.name).clone();
+    normAssert(outputDefault, outputHalide);
 }
 
 INSTANTIATE_TEST_CASE_P(Layer_Test_Halide, Eltwise, Combine(
 /*input size*/ Values(Vec3i(1, 4, 5), Vec3i(2, 8, 6)),
 /*operation*/  Values("prod", "sum", "max"),
 /*num convs*/  Values(1, 2, 3),
-/*weighted(for sum only)*/ Bool(),
-               dnnBackendsAndTargetsWithHalide()
+/*weighted(for sum only)*/ Bool()
 ));
 
 ////////////////////////////////////////////////////////////////////////////
 // Mixed backends
 ////////////////////////////////////////////////////////////////////////////
-#ifdef HAVE_HALIDE
 TEST(MixedBackends_Halide_Default_Halide, Accuracy)
 {
     // Just a layer that supports Halide backend.
@@ -790,11 +694,9 @@ TEST(MixedBackends_Halide_Default_Halide, Accuracy)
     net.addLayerToPrev(mvn.name, mvn.type, mvn);
     net.addLayerToPrev(lrn2.name, lrn2.type, lrn2);
 
-    int sz[] = {4, 3, 5, 6};
-    Mat input(4, &sz[0], CV_32F);
+    Mat input({4, 3, 5, 6}, CV_32F);
     randu(input, -1.0f, 1.0f);
     net.setInput(input);
-    net.setPreferableBackend(DNN_BACKEND_OPENCV);
     Mat outputDefault = net.forward().clone();
 
     net.setPreferableBackend(DNN_BACKEND_HALIDE);
@@ -808,7 +710,5 @@ TEST(MixedBackends_Halide_Default_Halide, Accuracy)
     normAssert(outputDefault, outputHalide);
 }
 #endif  // HAVE_HALIDE
-
-INSTANTIATE_TEST_CASE_P(/*nothing*/, Test_Halide_layers, dnnBackendsAndTargetsWithHalide());
 
 }} // namespace

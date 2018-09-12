@@ -59,7 +59,6 @@
     @defgroup videoio_c C API for video I/O
     @defgroup videoio_ios iOS glue for video I/O
     @defgroup videoio_winrt WinRT glue for video I/O
-    @defgroup videoio_registry Query I/O API backends registry
   @}
 */
 
@@ -117,8 +116,7 @@ enum VideoCaptureAPIs {
        CAP_IMAGES       = 2000,         //!< OpenCV Image Sequence (e.g. img_%02d.jpg)
        CAP_ARAVIS       = 2100,         //!< Aravis SDK
        CAP_OPENCV_MJPEG = 2200,         //!< Built-in OpenCV MotionJPEG codec
-       CAP_INTEL_MFX    = 2300,         //!< Intel MediaSDK
-       CAP_XINE         = 2400,         //!< XINE engine (Linux)
+       CAP_INTEL_MFX    = 2300          //!< Intel MediaSDK
      };
 
 /** @brief %VideoCapture generic properties identifier.
@@ -815,18 +813,13 @@ protected:
 
 class IVideoWriter;
 
-/** @example samples/cpp/tutorial_code/videoio/video-write/video-write.cpp
-Check @ref tutorial_video_write "the corresponding tutorial" for more details
-*/
-
-/** @example samples/cpp/videowriter_basic.cpp
+/** @example videowriter_basic.cpp
 An example using VideoCapture and VideoWriter class
-*/
-
+ */
 /** @brief Video writer class.
 
 The class provides C++ API for writing video files or image sequences.
-*/
+ */
 class CV_EXPORTS_W VideoWriter
 {
 public:
@@ -910,7 +903,7 @@ public:
 
     /** @brief Writes the next video frame
 
-    @param image The written frame. In general, color images are expected in BGR format.
+    @param image The written frame
 
     The function/method writes the specified image to video file. It must have the same size as has
     been specified when opening the video writer.

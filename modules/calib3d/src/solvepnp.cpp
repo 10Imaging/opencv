@@ -169,7 +169,7 @@ bool solvePnP( InputArray _opoints, InputArray _ipoints,
     return result;
 }
 
-class PnPRansacCallback CV_FINAL : public PointSetRegistrator::Callback
+class PnPRansacCallback : public PointSetRegistrator::Callback
 {
 
 public:
@@ -181,7 +181,7 @@ public:
 
     /* Pre: True */
     /* Post: compute _model with given points and return number of found models */
-    int runKernel( InputArray _m1, InputArray _m2, OutputArray _model ) const CV_OVERRIDE
+    int runKernel( InputArray _m1, InputArray _m2, OutputArray _model ) const
     {
         Mat opoints = _m1.getMat(), ipoints = _m2.getMat();
 
@@ -197,7 +197,7 @@ public:
 
     /* Pre: True */
     /* Post: fill _err with projection errors */
-    void computeError( InputArray _m1, InputArray _m2, InputArray _model, OutputArray _err ) const CV_OVERRIDE
+    void computeError( InputArray _m1, InputArray _m2, InputArray _model, OutputArray _err ) const
     {
 
         Mat opoints = _m1.getMat(), ipoints = _m2.getMat(), model = _model.getMat();

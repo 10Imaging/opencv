@@ -97,8 +97,8 @@ namespace cv
 
             @param frame Output result
              */
-            void nextFrame(OutputArray frame) CV_OVERRIDE;
-            void reset() CV_OVERRIDE;
+            void nextFrame(OutputArray frame);
+            void reset();
 
             /** @brief Clear all inner buffers.
             */

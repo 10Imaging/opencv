@@ -134,11 +134,11 @@ public:
     Mat responses;
 };
 
-class BruteForceImpl CV_FINAL : public Impl
+class BruteForceImpl : public Impl
 {
 public:
-    String getModelName() const CV_OVERRIDE { return NAME_BRUTE_FORCE; }
-    int getType() const CV_OVERRIDE { return ml::KNearest::BRUTE_FORCE; }
+    String getModelName() const { return NAME_BRUTE_FORCE; }
+    int getType() const { return ml::KNearest::BRUTE_FORCE; }
 
     void findNearestCore( const Mat& _samples, int k0, const Range& range,
                           Mat* results, Mat* neighbor_responses,
@@ -149,7 +149,7 @@ public:
         int k = std::min(k0, nsamples);
 
         AutoBuffer<float> buf(testcount*k*2);
-        float* dbuf = buf.data();
+        float* dbuf = buf;
         float* rbuf = dbuf + testcount*k;
 
         const float* rptr = responses.ptr<float>();
@@ -240,7 +240,20 @@ public:
                 else
                 {
                     float* rp = rbuf + testidx*k;
-                    std::sort(rp, rp+k);
+                    for( j = k-1; j > 0; j-- )
+                    {
+                        bool swap_fl = false;
+                        for( i = 0; i < j; i++ )
+                        {
+                            if( rp[i] > rp[i+1] )
+                            {
+                                std::swap(rp[i], rp[i+1]);
+                                swap_fl = true;
+                            }
+                        }
+                        if( !swap_fl )
+                            break;
+                    }
 
                     result = rp[0];
                     int prev_start = 0;
@@ -281,7 +294,7 @@ public:
             presult = _presult;
         }
 
-        void operator()(const Range& range) const CV_OVERRIDE
+        void operator()( const Range& range ) const
         {
             int delta = std::min(range.end - range.start, 256);
             for( int start = range.start; start < range.end; start += delta )
@@ -303,7 +316,7 @@ public:
     float findNearest( InputArray _samples, int k,
                        OutputArray _results,
                        OutputArray _neighborResponses,
-                       OutputArray _dists ) const CV_OVERRIDE
+                       OutputArray _dists ) const
     {
         float result = 0.f;
         CV_Assert( 0 < k );
@@ -345,13 +358,13 @@ public:
 };
 
 
-class KDTreeImpl CV_FINAL : public Impl
+class KDTreeImpl : public Impl
 {
 public:
-    String getModelName() const CV_OVERRIDE { return NAME_KDTREE; }
-    int getType() const CV_OVERRIDE { return ml::KNearest::KDTREE; }
+    String getModelName() const { return NAME_KDTREE; }
+    int getType() const { return ml::KNearest::KDTREE; }
 
-    void doTrain(InputArray points) CV_OVERRIDE
+    void doTrain(InputArray points)
     {
         tr.build(points);
     }
@@ -359,7 +372,7 @@ public:
     float findNearest( InputArray _samples, int k,
                        OutputArray _results,
                        OutputArray _neighborResponses,
-                       OutputArray _dists ) const CV_OVERRIDE
+                       OutputArray _dists ) const
     {
         float result = 0.f;
         CV_Assert( 0 < k );
@@ -419,34 +432,22 @@ public:
 
 //================================================================
 
-class KNearestImpl CV_FINAL : public KNearest
+class KNearestImpl : public KNearest
 {
-    inline int getDefaultK() const CV_OVERRIDE { return impl->defaultK; }
-    inline void setDefaultK(int val) CV_OVERRIDE { impl->defaultK = val; }
-    inline bool getIsClassifier() const CV_OVERRIDE { return impl->isclassifier; }
-    inline void setIsClassifier(bool val) CV_OVERRIDE { impl->isclassifier = val; }
-    inline int getEmax() const CV_OVERRIDE { return impl->Emax; }
-    inline void setEmax(int val) CV_OVERRIDE { impl->Emax = val; }
+    CV_IMPL_PROPERTY(int, DefaultK, impl->defaultK)
+    CV_IMPL_PROPERTY(bool, IsClassifier, impl->isclassifier)
+    CV_IMPL_PROPERTY(int, Emax, impl->Emax)
 
 public:
-    int getAlgorithmType() const CV_OVERRIDE
+    int getAlgorithmType() const
     {
         return impl->getType();
     }
-    void setAlgorithmType(int val) CV_OVERRIDE
+    void setAlgorithmType(int val)
     {
         if (val != BRUTE_FORCE && val != KDTREE)
             val = BRUTE_FORCE;
-
-        int k = getDefaultK();
-        int e = getEmax();
-        bool c = getIsClassifier();
-
         initImpl(val);
-
-        setDefaultK(k);
-        setEmax(e);
-        setIsClassifier(c);
     }
 
 public:
@@ -458,18 +459,18 @@ public:
     {
     }
 
-    bool isClassifier() const CV_OVERRIDE { return impl->isclassifier; }
-    bool isTrained() const CV_OVERRIDE { return !impl->samples.empty(); }
+    bool isClassifier() const { return impl->isclassifier; }
+    bool isTrained() const { return !impl->samples.empty(); }
 
-    int getVarCount() const CV_OVERRIDE { return impl->samples.cols; }
+    int getVarCount() const { return impl->samples.cols; }
 
-    void write( FileStorage& fs ) const CV_OVERRIDE
+    void write( FileStorage& fs ) const
     {
         writeFormat(fs);
         impl->write(fs);
     }
 
-    void read( const FileNode& fn ) CV_OVERRIDE
+    void read( const FileNode& fn )
     {
         int algorithmType = BRUTE_FORCE;
         if (fn.name() == NAME_KDTREE)
@@ -481,22 +482,22 @@ public:
     float findNearest( InputArray samples, int k,
                        OutputArray results,
                        OutputArray neighborResponses=noArray(),
-                       OutputArray dist=noArray() ) const CV_OVERRIDE
+                       OutputArray dist=noArray() ) const
     {
         return impl->findNearest(samples, k, results, neighborResponses, dist);
     }
 
-    float predict(InputArray inputs, OutputArray outputs, int) const CV_OVERRIDE
+    float predict(InputArray inputs, OutputArray outputs, int) const
     {
         return impl->findNearest( inputs, impl->defaultK, outputs, noArray(), noArray() );
     }
 
-    bool train( const Ptr<TrainData>& data, int flags ) CV_OVERRIDE
+    bool train( const Ptr<TrainData>& data, int flags )
     {
         return impl->train(data, flags);
     }
 
-    String getDefaultName() const CV_OVERRIDE { return impl->getModelName(); }
+    String getDefaultName() const { return impl->getModelName(); }
 
 protected:
     void initImpl(int algorithmType)

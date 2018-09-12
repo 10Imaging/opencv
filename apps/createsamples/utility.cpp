@@ -54,10 +54,6 @@
 #include "opencv2/highgui.hpp"
 #include "opencv2/calib3d.hpp"
 
-#if defined __GNUC__ && __GNUC__ >= 8
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
-#endif
-
 using namespace cv;
 
 #ifndef PATH_MAX
@@ -1044,10 +1040,12 @@ void cvCreateTrainingSamples( const char* filename,
         output = fopen( filename, "wb" );
         if( output != NULL )
         {
+            int hasbg;
             int i;
             int inverse;
 
-            const int hasbg = (bgfilename != NULL && icvInitBackgroundReaders( bgfilename,
+            hasbg = 0;
+            hasbg = (bgfilename != NULL && icvInitBackgroundReaders( bgfilename,
                      Size( winwidth,winheight ) ) );
 
             Mat sample( winheight, winwidth, CV_8UC1 );
@@ -1374,7 +1372,7 @@ int icvGetTraininDataFromVec( Mat& img, CvVecFile& userdata )
 
     size_t elements_read = fread( &tmp, sizeof( tmp ), 1, userdata.input );
     CV_Assert(elements_read == 1);
-    elements_read = fread(vector.data(), sizeof(short), userdata.vecsize, userdata.input);
+    elements_read = fread( vector, sizeof( short ), userdata.vecsize, userdata.input );
     CV_Assert(elements_read == (size_t)userdata.vecsize);
 
     if( feof( userdata.input ) || userdata.last++ >= userdata.count )

@@ -401,6 +401,7 @@ static void findMinimumAreaEnclosingTriangle(const std::vector<cv::Point2f> &pol
 
     a = 1;
     b = 2;
+    c = 0;
 
     // Main algorithm steps
 
@@ -987,15 +988,14 @@ static bool findGammaIntersectionPoints(const std::vector<cv::Point2f> &polygon,
     double sideCExtraParam = 2 * polygonPointHeight * distFormulaDenom;
 
     // Get intersection points if they exist or if lines are identical
-    if (areIntersectingLines(side1Params, side2Params, sideCExtraParam, intersectionPoint1, intersectionPoint2)) {
-        return true;
+    if (!areIntersectingLines(side1Params, side2Params, sideCExtraParam, intersectionPoint1, intersectionPoint2)) {
+        return false;
     } else if (areIdenticalLines(side1Params, side2Params, sideCExtraParam)) {
         intersectionPoint1 = side1StartVertex;
         intersectionPoint2 = side1EndVertex;
-        return true;
     }
 
-    return false;
+    return true;
 }
 
 //! Check if the given lines are identical or not

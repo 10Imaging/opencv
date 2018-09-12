@@ -278,12 +278,20 @@ namespace
 {
     template<typename T, bool Signed = numeric_limits<T>::is_signed> struct PowOp : unary_function<T, T>
     {
-        typedef typename LargerType<T, float>::type LargerType;
-        LargerType power;
+        float power;
 
         __device__ __forceinline__ T operator()(T e) const
         {
-            T res = cudev::saturate_cast<T>(__powf(e < 0 ? -e : e, power));
+            return cudev::saturate_cast<T>(__powf((float)e, power));
+        }
+    };
+    template<typename T> struct PowOp<T, true> : unary_function<T, T>
+    {
+        float power;
+
+        __device__ __forceinline__ T operator()(T e) const
+        {
+            T res = cudev::saturate_cast<T>(__powf((float)e, power));
 
             if ((e < 0) && (1 & static_cast<int>(power)))
                 res *= -1;
@@ -291,15 +299,22 @@ namespace
             return res;
         }
     };
-
-    template<typename T> struct PowOp<T, false> : unary_function<T, T>
+    template<> struct PowOp<float> : unary_function<float, float>
     {
-        typedef typename LargerType<T, float>::type LargerType;
-        LargerType power;
+        float power;
 
-        __device__ __forceinline__ T operator()(T e) const
+        __device__ __forceinline__ float operator()(float e) const
         {
-            return cudev::saturate_cast<T>(__powf(e, power));
+            return __powf(::fabs(e), power);
+        }
+    };
+    template<> struct PowOp<double> : unary_function<double, double>
+    {
+        double power;
+
+        __device__ __forceinline__ double operator()(double e) const
+        {
+            return ::pow(::fabs(e), power);
         }
     };
 

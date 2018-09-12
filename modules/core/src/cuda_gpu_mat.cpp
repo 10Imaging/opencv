@@ -46,13 +46,6 @@
 using namespace cv;
 using namespace cv::cuda;
 
-void cv::cuda::GpuMat::updateContinuityFlag()
-{
-    int sz[] = { rows, cols };
-    size_t steps[] = { step, elemSize() };
-    flags = cv::updateContinuityFlag(flags, 2, sz, steps);
-}
-
 cv::cuda::GpuMat::GpuMat(int rows_, int cols_, int type_, void* data_, size_t step_) :
     flags(Mat::MAGIC_VAL + (type_ & Mat::TYPE_MASK)), rows(rows_), cols(cols_),
     step(step_), data((uchar*)data_), refcount(0),
@@ -64,6 +57,7 @@ cv::cuda::GpuMat::GpuMat(int rows_, int cols_, int type_, void* data_, size_t st
     if (step == Mat::AUTO_STEP)
     {
         step = minstep;
+        flags |= Mat::CONTINUOUS_FLAG;
     }
     else
     {
@@ -71,10 +65,11 @@ cv::cuda::GpuMat::GpuMat(int rows_, int cols_, int type_, void* data_, size_t st
             step = minstep;
 
         CV_DbgAssert( step >= minstep );
+
+        flags |= step == minstep ? Mat::CONTINUOUS_FLAG : 0;
     }
 
     dataend += step * (rows - 1) + minstep;
-    updateContinuityFlag();
 }
 
 cv::cuda::GpuMat::GpuMat(Size size_, int type_, void* data_, size_t step_) :
@@ -88,6 +83,7 @@ cv::cuda::GpuMat::GpuMat(Size size_, int type_, void* data_, size_t step_) :
     if (step == Mat::AUTO_STEP)
     {
         step = minstep;
+        flags |= Mat::CONTINUOUS_FLAG;
     }
     else
     {
@@ -95,10 +91,11 @@ cv::cuda::GpuMat::GpuMat(Size size_, int type_, void* data_, size_t step_) :
             step = minstep;
 
         CV_DbgAssert( step >= minstep );
+
+        flags |= step == minstep ? Mat::CONTINUOUS_FLAG : 0;
     }
 
     dataend += step * (rows - 1) + minstep;
-    updateContinuityFlag();
 }
 
 cv::cuda::GpuMat::GpuMat(const GpuMat& m, Range rowRange_, Range colRange_)
@@ -130,15 +127,17 @@ cv::cuda::GpuMat::GpuMat(const GpuMat& m, Range rowRange_, Range colRange_)
 
         cols = colRange_.size();
         data += colRange_.start*elemSize();
+        flags &= cols < m.cols ? ~Mat::CONTINUOUS_FLAG : -1;
     }
+
+    if (rows == 1)
+        flags |= Mat::CONTINUOUS_FLAG;
 
     if (refcount)
         CV_XADD(refcount, 1);
 
     if (rows <= 0 || cols <= 0)
         rows = cols = 0;
-
-    updateContinuityFlag();
 }
 
 cv::cuda::GpuMat::GpuMat(const GpuMat& m, Rect roi) :
@@ -147,19 +146,16 @@ cv::cuda::GpuMat::GpuMat(const GpuMat& m, Rect roi) :
     datastart(m.datastart), dataend(m.dataend),
     allocator(m.allocator)
 {
+    flags &= roi.width < m.cols ? ~Mat::CONTINUOUS_FLAG : -1;
     data += roi.x * elemSize();
 
-    CV_Assert( 0 <= roi.x && 0 <= roi.width &&
-               roi.x + roi.width <= m.cols &&
-               0 <= roi.y && 0 <= roi.height &&
-               roi.y + roi.height <= m.rows );
+    CV_Assert( 0 <= roi.x && 0 <= roi.width && roi.x + roi.width <= m.cols && 0 <= roi.y && 0 <= roi.height && roi.y + roi.height <= m.rows );
 
     if (refcount)
         CV_XADD(refcount, 1);
 
     if (rows <= 0 || cols <= 0)
         rows = cols = 0;
-    updateContinuityFlag();
 }
 
 GpuMat cv::cuda::GpuMat::reshape(int new_cn, int new_rows) const
@@ -249,7 +245,11 @@ GpuMat& cv::cuda::GpuMat::adjustROI(int dtop, int dbottom, int dleft, int dright
     rows = row2 - row1;
     cols = col2 - col1;
 
-    updateContinuityFlag();
+    if (esz * cols == step || rows == 1)
+        flags |= Mat::CONTINUOUS_FLAG;
+    else
+        flags &= ~Mat::CONTINUOUS_FLAG;
+
     return *this;
 }
 
@@ -344,12 +344,13 @@ void cv::cuda::ensureSizeIsEnough(int rows, int cols, int type, OutputArray arr)
 
 GpuMat cv::cuda::getInputMat(InputArray _src, Stream& stream)
 {
+    GpuMat src;
+
 #ifndef HAVE_CUDA
     (void) _src;
     (void) stream;
     throw_no_cuda();
 #else
-    GpuMat src;
     if (_src.kind() == _InputArray::CUDA_GPU_MAT)
     {
         src = _src.getGpuMat();
@@ -360,12 +361,15 @@ GpuMat cv::cuda::getInputMat(InputArray _src, Stream& stream)
         src = pool.getBuffer(_src.size(), _src.type());
         src.upload(_src, stream);
     }
-    return src;
 #endif
+
+    return src;
 }
 
 GpuMat cv::cuda::getOutputMat(OutputArray _dst, int rows, int cols, int type, Stream& stream)
 {
+    GpuMat dst;
+
 #ifndef HAVE_CUDA
     (void) _dst;
     (void) rows;
@@ -374,7 +378,6 @@ GpuMat cv::cuda::getOutputMat(OutputArray _dst, int rows, int cols, int type, St
     (void) stream;
     throw_no_cuda();
 #else
-    GpuMat dst;
     if (_dst.kind() == _InputArray::CUDA_GPU_MAT)
     {
         _dst.create(rows, cols, type);
@@ -385,8 +388,9 @@ GpuMat cv::cuda::getOutputMat(OutputArray _dst, int rows, int cols, int type, St
         BufferPool pool(stream);
         dst = pool.getBuffer(rows, cols, type);
     }
-    return dst;
 #endif
+
+    return dst;
 }
 
 void cv::cuda::syncOutput(const GpuMat& dst, OutputArray _dst, Stream& stream)
@@ -484,6 +488,7 @@ GpuMat& cv::cuda::GpuMat::setTo(Scalar s, Stream& _stream)
     (void) s;
     (void) _stream;
     throw_no_cuda();
+    return *this;
 }
 
 GpuMat& cv::cuda::GpuMat::setTo(Scalar s, InputArray _mask, Stream& _stream)
@@ -492,6 +497,7 @@ GpuMat& cv::cuda::GpuMat::setTo(Scalar s, InputArray _mask, Stream& _stream)
     (void) _mask;
     (void) _stream;
     throw_no_cuda();
+    return *this;
 }
 
 void cv::cuda::GpuMat::convertTo(OutputArray _dst, int rtype, Stream& _stream) const

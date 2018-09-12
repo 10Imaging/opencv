@@ -1,7 +1,6 @@
 # ----------------------------------------------------------------------------
 #  CMake file for python support
 # ----------------------------------------------------------------------------
-if(DEFINED OPENCV_INITIAL_PASS)  # OpenCV build
 
 add_subdirectory(bindings)
 
@@ -29,10 +28,3 @@ endif()
 
 add_subdirectory(python2)
 add_subdirectory(python3)
-
-else()  # standalone build
-
-cmake_minimum_required(VERSION 2.8.12)
-include("./standalone.cmake")
-
-endif()

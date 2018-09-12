@@ -209,14 +209,7 @@ cvStartFindContours_Impl( void* _img, CvMemStorage* storage,
         CV_Error( CV_StsBadSize, "" );
 
     CvContourScanner scanner = (CvContourScanner)cvAlloc( sizeof( *scanner ));
-#if defined __GNUC__ && __GNUC__ >= 8
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
-#endif
     memset( scanner, 0, sizeof(*scanner) );
-#if defined __GNUC__ && __GNUC__ >= 8
-#pragma GCC diagnostic pop
-#endif
 
     scanner->storage1 = scanner->storage2 = storage;
     scanner->img0 = (schar *) img;
@@ -855,6 +848,7 @@ icvTraceContour_32s( int *ptr, int step, int *stop_ptr, int is_hole )
         for( ;; )
         {
             CV_Assert(i3 != NULL);
+            s_end = s;
             s = std::min(s, MAX_SIZE - 1);
 
             while( s < MAX_SIZE - 1 )
@@ -1478,7 +1472,7 @@ icvFindContoursInInterval( const CvArr* src,
     cv::Ptr<CvMemStorage> storage01;
     CvSeq* first = 0;
 
-    int j, k, n;
+    int i, j, k, n;
 
     uchar*  src_data = 0;
     int  img_step = 0;
@@ -1546,6 +1540,7 @@ icvFindContoursInInterval( const CvArr* src,
 
     // First line. None of runs is binded
     tmp.pt.y = 0;
+    i = 0;
     CV_WRITE_SEQ_ELEM( tmp, writer );
     upper_line = (CvLinkedRunPoint*)CV_GET_WRITTEN_ELEM( writer );
 
@@ -1578,7 +1573,7 @@ icvFindContoursInInterval( const CvArr* src,
     last_elem = tmp_prev;
     tmp_prev->next = 0;
 
-    for( int i = 1; i < img_size.height; i++ )
+    for( i = 1; i < img_size.height; i++ )
     {
 //------// Find runs in next line
         src_data += img_step;

@@ -192,7 +192,7 @@ public:
     MotionEstimatorRansacL2Builder(CommandLineParser &command, bool use_gpu, const string &_prefix = "")
         : IMotionEstimatorBuilder(command), gpu(use_gpu), prefix(_prefix) {}
 
-    virtual Ptr<ImageMotionEstimatorBase> build() CV_OVERRIDE
+    virtual Ptr<ImageMotionEstimatorBase> build()
     {
         Ptr<MotionEstimatorRansacL2> est = makePtr<MotionEstimatorRansacL2>(motionModel(arg(prefix + "model")));
 
@@ -245,7 +245,7 @@ public:
     MotionEstimatorL1Builder(CommandLineParser &command, bool use_gpu, const string &_prefix = "")
         : IMotionEstimatorBuilder(command), gpu(use_gpu), prefix(_prefix) {}
 
-    virtual Ptr<ImageMotionEstimatorBase> build() CV_OVERRIDE
+    virtual Ptr<ImageMotionEstimatorBase> build()
     {
         Ptr<MotionEstimatorL1> est = makePtr<MotionEstimatorL1>(motionModel(arg(prefix + "model")));
 

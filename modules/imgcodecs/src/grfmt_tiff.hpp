@@ -90,20 +90,20 @@ enum TiffFieldType
 
 
 // libtiff based TIFF codec
-class TiffDecoder CV_FINAL : public BaseImageDecoder
+class TiffDecoder : public BaseImageDecoder
 {
 public:
     TiffDecoder();
-    virtual ~TiffDecoder() CV_OVERRIDE;
+    virtual ~TiffDecoder();
 
-    bool  readHeader() CV_OVERRIDE;
-    bool  readData( Mat& img ) CV_OVERRIDE;
+    bool  readHeader();
+    bool  readData( Mat& img );
     void  close();
-    bool  nextPage() CV_OVERRIDE;
+    bool  nextPage();
 
-    size_t signatureLength() const CV_OVERRIDE;
-    bool checkSignature( const String& signature ) const CV_OVERRIDE;
-    ImageDecoder newDecoder() const CV_OVERRIDE;
+    size_t signatureLength() const;
+    bool checkSignature( const String& signature ) const;
+    ImageDecoder newDecoder() const;
 
 protected:
     void* m_tif;
@@ -119,19 +119,19 @@ private:
 };
 
 // ... and writer
-class TiffEncoder CV_FINAL : public BaseImageEncoder
+class TiffEncoder : public BaseImageEncoder
 {
 public:
     TiffEncoder();
-    virtual ~TiffEncoder() CV_OVERRIDE;
+    virtual ~TiffEncoder();
 
-    bool isFormatSupported( int depth ) const CV_OVERRIDE;
+    bool isFormatSupported( int depth ) const;
 
-    bool  write( const Mat& img, const std::vector<int>& params ) CV_OVERRIDE;
+    bool  write( const Mat& img, const std::vector<int>& params );
 
-    bool writemulti(const std::vector<Mat>& img_vec, const std::vector<int>& params) CV_OVERRIDE;
+    bool writemulti(const std::vector<Mat>& img_vec, const std::vector<int>& params);
 
-    ImageEncoder newEncoder() const CV_OVERRIDE;
+    ImageEncoder newEncoder() const;
 
 protected:
     void  writeTag( WLByteStream& strm, TiffTag tag,

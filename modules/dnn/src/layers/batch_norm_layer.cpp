@@ -10,8 +10,8 @@ Implementation of Batch Normalization layer.
 */
 
 #include "../precomp.hpp"
-#include "../op_halide.hpp"
-#include "../op_inf_engine.hpp"
+#include "op_halide.hpp"
+#include "op_inf_engine.hpp"
 #include <opencv2/dnn/shape_utils.hpp>
 
 #ifdef HAVE_OPENCL
@@ -23,7 +23,7 @@ namespace cv
 namespace dnn
 {
 
-class BatchNormLayerImpl CV_FINAL : public BatchNormLayer
+class BatchNormLayerImpl : public BatchNormLayer
 {
 public:
     Mat weights_, bias_;
@@ -36,7 +36,6 @@ public:
 
         hasWeights = params.get<bool>("has_weight", false);
         hasBias = params.get<bool>("has_bias", false);
-        useGlobalStats = params.get<bool>("use_global_stats", true);
         if(params.get<bool>("scale_bias", false))
             hasWeights = hasBias = true;
         epsilon = params.get<float>("eps", 1E-5);
@@ -47,8 +46,8 @@ public:
                   blobs[0].type() == CV_32F && blobs[1].type() == CV_32F);
 
         float varMeanScale = 1.f;
-        if (!hasWeights && !hasBias && blobs.size() > 2 && useGlobalStats) {
-            CV_Assert(blobs.size() == 3); CV_CheckTypeEQ(blobs[2].type(), CV_32FC1, "");
+        if (!hasWeights && !hasBias && blobs.size() > 2) {
+            CV_Assert(blobs.size() == 3, blobs[2].type() == CV_32F);
             varMeanScale = blobs[2].at<float>(0);
             if (varMeanScale != 0)
                 varMeanScale = 1/varMeanScale;
@@ -90,66 +89,24 @@ public:
         }
     }
 
-    void getScaleShift(Mat& scale, Mat& shift) const CV_OVERRIDE
+    void getScaleShift(Mat& scale, Mat& shift) const
     {
         scale = weights_;
         shift = bias_;
     }
 
-    virtual bool tryFuse(Ptr<Layer>& top) CV_OVERRIDE
-    {
-        Mat w, b;
-        top->getScaleShift(w, b);
-        if (w.empty() && b.empty())
-            return false;
-
-        const int numChannels = weights_.total();
-        const int numFusedWeights = w.total();
-        const int numFusedBias = b.total();
-
-        if ((numFusedWeights != numChannels && numFusedWeights != 1 && !w.empty()) ||
-            (numFusedBias != numChannels && numFusedBias != 1 && !b.empty()))
-            return false;
-
-        if (!w.empty())
-        {
-            w = w.reshape(1, 1);
-            if (numFusedWeights == 1)
-            {
-                multiply(weights_, w.at<float>(0), weights_);
-                multiply(bias_, w.at<float>(0), bias_);
-            }
-            else
-            {
-                multiply(weights_, w, weights_);
-                multiply(bias_, w, bias_);
-            }
-        }
-        if (!b.empty())
-        {
-            b = b.reshape(1, 1);
-            if (numFusedBias == 1)
-                add(bias_, b.at<float>(0), bias_);
-            else
-                add(bias_, b.reshape(1, 1), bias_);
-        }
-        return true;
-    }
-
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
                          const int requiredOutputs,
                          std::vector<MatShape> &outputs,
-                         std::vector<MatShape> &internals) const CV_OVERRIDE
+                         std::vector<MatShape> &internals) const
     {
-        if (!useGlobalStats && inputs[0][0] != 1)
-            CV_Error(Error::StsNotImplemented, "Batch normalization in training mode with batch size > 1");
         Layer::getMemoryShapes(inputs, requiredOutputs, outputs, internals);
         return true;
     }
 
-    virtual bool supportBackend(int backendId) CV_OVERRIDE
+    virtual bool supportBackend(int backendId)
     {
-        return backendId == DNN_BACKEND_OPENCV ||
+        return backendId == DNN_BACKEND_DEFAULT ||
                backendId == DNN_BACKEND_HALIDE && haveHalide() ||
                backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine();
     }
@@ -160,15 +117,11 @@ public:
         std::vector<UMat> inputs;
         std::vector<UMat> outputs;
 
-        bool use_half = (inputs_.depth() == CV_16S);
         inputs_.getUMatVector(inputs);
         outputs_.getUMatVector(outputs);
 
         CV_Assert(blobs.size() >= 2);
         CV_Assert(inputs.size() == 1);
-
-        if (use_half && inputs[0].dims == 2)
-            return false;
 
         if (umat_weight.empty())
         {
@@ -183,7 +136,6 @@ public:
         int rows = inpBlob.dims > 2 ? inpBlob.size[2] : 1;
         int cols = inpBlob.dims > 2 ? inpBlob.size[3] : 1;
 
-        String opts = (use_half) ? " -DDtype=half" : " -DDtype=float";
         for (size_t ii = 0; ii < outputs.size(); ii++)
         {
             if (inpBlob.dims == 2)
@@ -199,12 +151,8 @@ public:
                 UMat src = inputs[ii].reshape(1, s.size(), &s[0]);
                 UMat dst = outputs[ii].reshape(1, s.size(), &s[0]);
                 int number = (s[1] % 8 == 0) ? 8 : ((s[1] % 4 == 0) ? 4 : 1);
-                String buildopt = format("-DNUM=%d", number) + opts;
+                String buildopt = format("-DNUM=%d", number);
                 String kname = format("batch_norm%d", number);
-                if (number == 1)
-                    buildopt += format(" -Dconvert_T=convert_%s", use_half ? "half" : "float");
-                else
-                    buildopt += format(" -Dconvert_T=convert_%s%d", use_half ? "half" : "float", number);
                 ocl::Kernel kernel(kname.c_str(), ocl::dnn::batchnorm_oclsrc, buildopt);
                 if (kernel.empty())
                     return false;
@@ -225,19 +173,19 @@ public:
     }
 #endif
 
-    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE
+    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr)
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
 
-        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget) &&
+        CV_OCL_RUN((preferableTarget == DNN_TARGET_OPENCL) &&
                    OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
                    forward_ocl(inputs_arr, outputs_arr, internals_arr))
 
         Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
     }
 
-    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
+    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals)
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
@@ -268,37 +216,7 @@ public:
         }
     }
 
-    void forwardSlice(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const CV_OVERRIDE
-    {
-        for( int cn = cn0; cn < cn1; cn++, srcptr += planeSize, dstptr += planeSize )
-        {
-            int i = 0;
-            float w = weights_.at<float>(cn);
-            float b = bias_.at<float>(cn);
-#if CV_SIMD128
-            v_float32x4 wV = v_setall_f32(w), bV = v_setall_f32(b);
-            for( ; i <= len - 16; i += 16 )
-            {
-                v_float32x4 x0 = v_load(srcptr + i);
-                v_float32x4 x1 = v_load(srcptr + i + 4);
-                v_float32x4 x2 = v_load(srcptr + i + 8);
-                v_float32x4 x3 = v_load(srcptr + i + 12);
-                x0 = v_muladd(x0, w, b);
-                x1 = v_muladd(x1, w, b);
-                x2 = v_muladd(x2, w, b);
-                x3 = v_muladd(x3, w, b);
-                v_store(dstptr + i, x0);
-                v_store(dstptr + i + 4, x1);
-                v_store(dstptr + i + 8, x2);
-                v_store(dstptr + i + 12, x3);
-            }
-#endif
-            for( ; i < len; i++ )
-                dstptr[i] = w * srcptr[i] + b;
-        }
-    }
-
-    virtual Ptr<BackendNode> tryAttach(const Ptr<BackendNode>& node) CV_OVERRIDE
+    virtual Ptr<BackendNode> tryAttach(const Ptr<BackendNode>& node)
     {
         switch (node->backendId)
         {
@@ -313,11 +231,24 @@ public:
 #endif  // HAVE_HALIDE
                 break;
             }
+            case DNN_BACKEND_INFERENCE_ENGINE:
+            {
+#ifdef HAVE_INF_ENGINE
+                auto base = node.dynamicCast<InfEngineBackendNode>();
+                auto conv = std::dynamic_pointer_cast<InferenceEngine::ConvolutionLayer>(base->layer);
+                if (conv)
+                {
+                    fuseConvWeights(conv, weights_, bias_);
+                    return base;
+                }
+#endif  // HAVE_INF_ENGINE
+                break;
+            }
         }
         return Ptr<BackendNode>();
     }
 
-    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &inputs) CV_OVERRIDE
+    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &inputs)
     {
 #ifdef HAVE_HALIDE
         Halide::Buffer<float> input = halideBuffer(inputs[0]);
@@ -344,7 +275,7 @@ public:
     }
 #endif  // HAVE_HALIDE
 
-    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&) CV_OVERRIDE
+    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&)
     {
 #ifdef HAVE_INF_ENGINE
         InferenceEngine::LayerParams lp;
@@ -353,9 +284,8 @@ public:
         lp.precision = InferenceEngine::Precision::FP32;
         std::shared_ptr<InferenceEngine::ScaleShiftLayer> ieLayer(new InferenceEngine::ScaleShiftLayer(lp));
 
-        const size_t numChannels = weights_.total();
-        ieLayer->_weights = wrapToInfEngineBlob(weights_, {numChannels}, InferenceEngine::Layout::C);
-        ieLayer->_biases = wrapToInfEngineBlob(bias_, {numChannels}, InferenceEngine::Layout::C);
+        ieLayer->_weights = wrapToInfEngineBlob(weights_);
+        ieLayer->_biases = wrapToInfEngineBlob(bias_);
 
         return Ptr<BackendNode>(new InfEngineBackendNode(ieLayer));
 #endif  // HAVE_INF_ENGINE
@@ -363,7 +293,7 @@ public:
     }
 
     virtual int64 getFLOPS(const std::vector<MatShape> &inputs,
-                           const std::vector<MatShape> &outputs) const CV_OVERRIDE
+                           const std::vector<MatShape> &outputs) const
     {
         (void)outputs; // suppress unused variable warning
 
@@ -374,9 +304,6 @@ public:
         }
         return flops;
     }
-
-private:
-    bool useGlobalStats;
 };
 
 Ptr<BatchNormLayer> BatchNormLayer::create(const LayerParams& params)

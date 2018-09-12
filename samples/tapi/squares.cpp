@@ -1,3 +1,6 @@
+// The "Square Detector" program.
+// It loads several images sequentially and tries to find squares in
+// each image
 
 #include "opencv2/core.hpp"
 #include "opencv2/core/ocl.hpp"
@@ -6,6 +9,7 @@
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/highgui.hpp"
 #include <iostream>
+#include <string.h>
 
 using namespace cv;
 using namespace std;
@@ -27,6 +31,7 @@ static double angle( Point pt1, Point pt2, Point pt0 )
 
 
 // returns sequence of squares detected on the image.
+// the sequence is stored in the specified memory storage
 static void findSquares( const UMat& image, vector<vector<Point> >& squares )
 {
     squares.clear();
@@ -61,7 +66,7 @@ static void findSquares( const UMat& image, vector<vector<Point> >& squares )
             {
                 // apply threshold if l!=0:
                 //     tgray(x,y) = gray(x,y) < (l+1)*255/N ? 255 : 0
-                threshold(gray0, gray, (l+1)*255/N, 255, THRESH_BINARY);
+                cv::threshold(gray0, gray, (l+1)*255/N, 255, THRESH_BINARY);
             }
 
             // find contours and store them all as a list
@@ -75,7 +80,7 @@ static void findSquares( const UMat& image, vector<vector<Point> >& squares )
                 // approximate contour with accuracy proportional
                 // to the contour perimeter
 
-                approxPolyDP(contours[i], approx, arcLength(contours[i], true)*0.02, true);
+                approxPolyDP(Mat(contours[i]), approx, arcLength(Mat(contours[i]), true)*0.02, true);
 
                 // square contours should have 4 vertices after approximation
                 // relatively large area (to filter out noisy contours)
@@ -84,8 +89,8 @@ static void findSquares( const UMat& image, vector<vector<Point> >& squares )
                 // area may be positive or negative - in accordance with the
                 // contour orientation
                 if( approx.size() == 4 &&
-                        fabs(contourArea(approx)) > 1000 &&
-                        isContourConvex(approx) )
+                        fabs(contourArea(Mat(approx))) > 1000 &&
+                        isContourConvex(Mat(approx)) )
                 {
                     double maxCosine = 0;
 
@@ -145,7 +150,7 @@ int main(int argc, char** argv)
 
     if(cmd.has("help"))
     {
-        cout << "Usage : " << argv[0] << " [options]" << endl;
+        cout << "Usage : squares [options]" << endl;
         cout << "Available options:" << endl;
         cmd.printMessage();
         return EXIT_SUCCESS;
@@ -153,7 +158,7 @@ int main(int argc, char** argv)
     if (cmd.has("cpu_mode"))
     {
         ocl::setUseOpenCL(false);
-        cout << "OpenCL was disabled" << endl;
+        std::cout << "OpenCL was disabled" << std::endl;
     }
 
     string inputName = cmd.get<string>("i");
@@ -180,11 +185,11 @@ int main(int argc, char** argv)
 
     do
     {
-        int64 t_start = getTickCount();
+        int64 t_start = cv::getTickCount();
         findSquares(image, squares);
         t_cpp += cv::getTickCount() - t_start;
 
-        t_start  = getTickCount();
+        t_start  = cv::getTickCount();
 
         cout << "run loop: " << j << endl;
     }

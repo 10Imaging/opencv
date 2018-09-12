@@ -211,7 +211,7 @@ if(X86 OR X86_64)
     endif()
     ocv_intel_compiler_optimization_option(AVX_512F "-march=common-avx512" "/arch:COMMON-AVX512")
     ocv_intel_compiler_optimization_option(AVX512_SKX "-march=core-avx512" "/arch:CORE-AVX512")
-  elseif(CV_GCC OR CV_CLANG)
+  elseif(CMAKE_COMPILER_IS_GNUCXX)
     ocv_update(CPU_AVX2_FLAGS_ON "-mavx2")
     ocv_update(CPU_FP16_FLAGS_ON "-mf16c")
     ocv_update(CPU_AVX_FLAGS_ON "-mavx")
@@ -223,7 +223,7 @@ if(X86 OR X86_64)
     ocv_update(CPU_SSSE3_FLAGS_ON "-mssse3")
     ocv_update(CPU_SSE2_FLAGS_ON "-msse2")
     ocv_update(CPU_SSE_FLAGS_ON "-msse")
-    if(NOT (CV_GCC AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "5.0"))  # GCC >= 5.0
+    if(NOT (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "5.0"))  # GCC >= 5.0
       # -mavx512f -mavx512pf -mavx512er -mavx512cd -mavx512vl -mavx512bw -mavx512dq -mavx512ifma -mavx512vbmi
       ocv_update(CPU_AVX_512F_FLAGS_ON "-mavx512f")
       ocv_update(CPU_AVX512_SKX_FLAGS_ON "-mavx512f -mavx512cd -mavx512vl -mavx512bw -mavx512dq")
@@ -234,7 +234,6 @@ if(X86 OR X86_64)
   elseif(MSVC)
     ocv_update(CPU_AVX2_FLAGS_ON "/arch:AVX2")
     ocv_update(CPU_AVX_FLAGS_ON "/arch:AVX")
-    ocv_update(CPU_FP16_FLAGS_ON "/arch:AVX")
     if(NOT MSVC64)
       # 64-bit MSVC compiler uses SSE/SSE2 by default
       ocv_update(CPU_SSE_FLAGS_ON "/arch:SSE")
@@ -259,10 +258,7 @@ if(X86 OR X86_64)
   endif()
 
   if(NOT DEFINED CPU_BASELINE)
-    if(APPLE)
-      # MacOS X has limited set of possible supported H/W, so compiler is configured well
-      set(CPU_BASELINE "DETECT" CACHE STRING "${HELP_CPU_BASELINE}")
-    elseif(X86_64)
+    if(X86_64)
       set(CPU_BASELINE "SSE3" CACHE STRING "${HELP_CPU_BASELINE}")
     else()
       set(CPU_BASELINE "SSE2" CACHE STRING "${HELP_CPU_BASELINE}")
@@ -292,7 +288,7 @@ elseif(PPC64LE)
   ocv_update(CPU_KNOWN_OPTIMIZATIONS "VSX")
   ocv_update(CPU_VSX_TEST_FILE "${OpenCV_SOURCE_DIR}/cmake/checks/cpu_vsx.cpp")
 
-  if(CV_CLANG AND (NOT ${CMAKE_CXX_COMPILER} MATCHES "xlc"))
+  if(CMAKE_COMPILER_IS_CLANGCXX AND (NOT ${CMAKE_CXX_COMPILER} MATCHES "xlc"))
     ocv_update(CPU_VSX_FLAGS_ON "-mvsx -maltivec")
   else()
     ocv_update(CPU_VSX_FLAGS_ON "-mcpu=power8")
@@ -396,7 +392,7 @@ endforeach()
 if(_add_native_flag)
   set(_varname "HAVE_CPU_NATIVE_SUPPORT")
   ocv_check_compiler_flag(CXX "-march=native" "${_varname}" "")
-  if(${_varname})
+  if(_varname)
     set(CPU_BASELINE_FLAGS "${CPU_BASELINE_FLAGS} -march=native")
   else()
     set(_varname "HAVE_CPU_HOST_SUPPORT")
@@ -406,8 +402,8 @@ if(_add_native_flag)
       set(_flag "-xHost")
     endif()
     ocv_check_compiler_flag(CXX "${_flag}" "${_varname}" "")
-    if(${_varname})
-      set(CPU_BASELINE_FLAGS "${CPU_BASELINE_FLAGS} ${_flag}")
+    if(_varname)
+      set(CPU_BASELINE_FLAGS "${CPU_BASELINE_FLAGS} ${flag}")
     endif()
   endif()
 endif()
@@ -423,9 +419,6 @@ foreach(OPT ${CPU_KNOWN_OPTIMIZATIONS})
   if(__is_disabled)
     set(__is_from_baseline 0)
   else()
-    if(CPU_${OPT}_SUPPORTED AND CPU_BASELINE_DETECT)
-      list(APPEND CPU_BASELINE_FINAL ${OPT})
-    endif()
     ocv_is_optimization_in_list(__is_from_baseline ${OPT} ${CPU_BASELINE_REQUIRE})
     if(NOT __is_from_baseline)
       ocv_is_optimization_in_list(__is_from_baseline ${OPT} ${CPU_BASELINE})
@@ -445,9 +438,7 @@ foreach(OPT ${CPU_KNOWN_OPTIMIZATIONS})
     if(";${CPU_DISPATCH};" MATCHES ";${OPT};" AND NOT __is_from_baseline)
       list(APPEND CPU_DISPATCH_FINAL ${OPT})
     elseif(__is_from_baseline)
-      if(NOT ";${CPU_BASELINE_FINAL};" MATCHES ";${OPT};")
-        list(APPEND CPU_BASELINE_FINAL ${OPT})
-      endif()
+      list(APPEND CPU_BASELINE_FINAL ${OPT})
       ocv_append_optimization_flag(CPU_BASELINE_FLAGS ${OPT})
     endif()
   endif()
@@ -554,7 +545,7 @@ macro(ocv_compiler_optimization_options)
 endmacro()
 
 macro(ocv_compiler_optimization_options_finalize)
-  if((CV_GCC OR CV_CLANG) AND (X86 OR X86_64))
+  if(CMAKE_COMPILER_IS_GNUCXX AND (X86 OR X86_64))
     if(NOT APPLE AND CMAKE_SIZEOF_VOID_P EQUAL 4)
       if(OPENCV_EXTRA_CXX_FLAGS MATCHES "-m(sse2|avx)")
         add_extra_compiler_option(-mfpmath=sse) # !! important - be on the same wave with x64 compilers
@@ -700,20 +691,11 @@ macro(ocv_compiler_optimization_fill_cpu_config)
     list(APPEND __dispatch_modes ${CPU_DISPATCH_${OPT}_FORCE} ${OPT})
   endforeach()
   list(REMOVE_DUPLICATES __dispatch_modes)
+  set(OPENCV_CPU_DISPATCH_DEFINITIONS_CONFIGMAKE "")
   foreach(OPT ${__dispatch_modes})
     set(OPENCV_CPU_DISPATCH_DEFINITIONS_CONFIGMAKE "${OPENCV_CPU_DISPATCH_DEFINITIONS_CONFIGMAKE}
 #define CV_CPU_DISPATCH_COMPILE_${OPT} 1")
   endforeach()
-
-  set(OPENCV_CPU_DISPATCH_DEFINITIONS_CONFIGMAKE "${OPENCV_CPU_DISPATCH_DEFINITIONS_CONFIGMAKE}
-\n\n#define CV_CPU_DISPATCH_FEATURES 0 \\")
-  foreach(OPT ${__dispatch_modes})
-    if(NOT DEFINED CPU_${OPT}_FEATURE_ALIAS OR NOT "x${CPU_${OPT}_FEATURE_ALIAS}" STREQUAL "x")
-      set(OPENCV_CPU_DISPATCH_DEFINITIONS_CONFIGMAKE "${OPENCV_CPU_DISPATCH_DEFINITIONS_CONFIGMAKE}
-    , CV_CPU_${OPT} \\")
-    endif()
-  endforeach()
-  set(OPENCV_CPU_DISPATCH_DEFINITIONS_CONFIGMAKE "${OPENCV_CPU_DISPATCH_DEFINITIONS_CONFIGMAKE}\n")
 
   set(OPENCV_CPU_CONTROL_DEFINITIONS_CONFIGMAKE "// AUTOGENERATED, DO NOT EDIT\n")
   foreach(OPT ${CPU_ALL_OPTIMIZATIONS})
@@ -721,19 +703,16 @@ macro(ocv_compiler_optimization_fill_cpu_config)
       set(OPENCV_CPU_CONTROL_DEFINITIONS_CONFIGMAKE "${OPENCV_CPU_CONTROL_DEFINITIONS_CONFIGMAKE}
 #if !defined CV_DISABLE_OPTIMIZATION && defined CV_ENABLE_INTRINSICS && defined CV_CPU_COMPILE_${OPT}
 #  define CV_TRY_${OPT} 1
-#  define CV_CPU_FORCE_${OPT} 1
 #  define CV_CPU_HAS_SUPPORT_${OPT} 1
 #  define CV_CPU_CALL_${OPT}(fn, args) return (cpu_baseline::fn args)
 #  define CV_CPU_CALL_${OPT}_(fn, args) return (opt_${OPT}::fn args)
 #elif !defined CV_DISABLE_OPTIMIZATION && defined CV_ENABLE_INTRINSICS && defined CV_CPU_DISPATCH_COMPILE_${OPT}
 #  define CV_TRY_${OPT} 1
-#  define CV_CPU_FORCE_${OPT} 0
 #  define CV_CPU_HAS_SUPPORT_${OPT} (cv::checkHardwareSupport(CV_CPU_${OPT}))
 #  define CV_CPU_CALL_${OPT}(fn, args) if (CV_CPU_HAS_SUPPORT_${OPT}) return (opt_${OPT}::fn args)
 #  define CV_CPU_CALL_${OPT}_(fn, args) if (CV_CPU_HAS_SUPPORT_${OPT}) return (opt_${OPT}::fn args)
 #else
 #  define CV_TRY_${OPT} 0
-#  define CV_CPU_FORCE_${OPT} 0
 #  define CV_CPU_HAS_SUPPORT_${OPT} 0
 #  define CV_CPU_CALL_${OPT}(fn, args)
 #  define CV_CPU_CALL_${OPT}_(fn, args)
@@ -749,7 +728,7 @@ macro(ocv_compiler_optimization_fill_cpu_config)
 ")
 
 
-  set(__file "${OpenCV_SOURCE_DIR}/modules/core/include/opencv2/core/cv_cpu_helper.h")
+  set(__file "${CMAKE_SOURCE_DIR}/modules/core/include/opencv2/core/cv_cpu_helper.h")
   if(EXISTS "${__file}")
     file(READ "${__file}" __content)
   endif()
@@ -761,24 +740,24 @@ macro(ocv_compiler_optimization_fill_cpu_config)
   endif()
 endmacro()
 
-macro(__ocv_add_dispatched_file filename target_src_var src_directory dst_directory precomp_hpp optimizations_var)
+macro(ocv_add_dispatched_file filename)
   if(NOT OPENCV_INITIAL_PASS)
     set(__codestr "
-#include \"${src_directory}/${precomp_hpp}\"
-#include \"${src_directory}/${filename}.simd.hpp\"
+#include \"precomp.hpp\"
+#include \"${filename}.simd.hpp\"
 ")
 
-    set(__declarations_str "#define CV_CPU_SIMD_FILENAME \"${src_directory}/${filename}.simd.hpp\"")
+    set(__declarations_str "#define CV_CPU_SIMD_FILENAME \"${filename}.simd.hpp\"")
     set(__dispatch_modes "BASELINE")
 
-    set(__optimizations "${${optimizations_var}}")
+    set(__optimizations "${ARGN}")
     if(CV_DISABLE_OPTIMIZATION OR NOT CV_ENABLE_INTRINSICS)
       set(__optimizations "")
     endif()
 
     foreach(OPT ${__optimizations})
       string(TOLOWER "${OPT}" OPT_LOWER)
-      set(__file "${CMAKE_CURRENT_BINARY_DIR}/${dst_directory}${filename}.${OPT_LOWER}.cpp")
+      set(__file "${CMAKE_CURRENT_BINARY_DIR}/${filename}.${OPT_LOWER}.cpp")
       if(EXISTS "${__file}")
         file(READ "${__file}" __content)
       else()
@@ -791,11 +770,7 @@ macro(__ocv_add_dispatched_file filename target_src_var src_directory dst_direct
       endif()
 
       if(";${CPU_DISPATCH};" MATCHES "${OPT}" OR __CPU_DISPATCH_INCLUDE_ALL)
-        if(EXISTS "${src_directory}/${filename}.${OPT_LOWER}.cpp")
-          message(STATUS "Using overrided ${OPT} source: ${src_directory}/${filename}.${OPT_LOWER}.cpp")
-        else()
-          list(APPEND ${target_src_var} "${__file}")
-        endif()
+        list(APPEND OPENCV_MODULE_${the_module}_SOURCES_DISPATCHED "${__file}")
       endif()
 
       set(__declarations_str "${__declarations_str}
@@ -807,11 +782,9 @@ macro(__ocv_add_dispatched_file filename target_src_var src_directory dst_direct
 
     set(__declarations_str "${__declarations_str}
 #define CV_CPU_DISPATCH_MODES_ALL ${__dispatch_modes}
-
-#undef CV_CPU_SIMD_FILENAME
 ")
 
-    set(__file "${CMAKE_CURRENT_BINARY_DIR}/${dst_directory}${filename}.simd_declarations.hpp")
+    set(__file "${CMAKE_CURRENT_BINARY_DIR}/${filename}.simd_declarations.hpp")
     if(EXISTS "${__file}")
       file(READ "${__file}" __content)
     endif()
@@ -822,17 +795,6 @@ macro(__ocv_add_dispatched_file filename target_src_var src_directory dst_direct
     endif()
   endif()
 endmacro()
-
-macro(ocv_add_dispatched_file filename)
-  set(__optimizations "${ARGN}")
-  if(" ${ARGV1}" STREQUAL " TEST")
-    list(REMOVE_AT __optimizations 0)
-    __ocv_add_dispatched_file("${filename}" "OPENCV_MODULE_${the_module}_TEST_SOURCES_DISPATCHED" "${CMAKE_CURRENT_LIST_DIR}/test" "test/" "test_precomp.hpp" __optimizations)
-  else()
-    __ocv_add_dispatched_file("${filename}" "OPENCV_MODULE_${the_module}_SOURCES_DISPATCHED" "${CMAKE_CURRENT_LIST_DIR}/src" "" "precomp.hpp" __optimizations)
-  endif()
-endmacro()
-
 
 # Workaround to support code which always require all code paths
 macro(ocv_add_dispatched_file_force_all)

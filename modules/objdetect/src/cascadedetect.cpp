@@ -997,7 +997,7 @@ public:
         mtx = _mtx;
     }
 
-    void operator()(const Range& range) const CV_OVERRIDE
+    void operator()(const Range& range) const
     {
         CV_INSTRUMENT_REGION()
 
@@ -1346,7 +1346,7 @@ void CascadeClassifierImpl::detectMultiScaleNoGrouping( InputArray _image, std::
 
         size_t i, nscales = scales.size();
         cv::AutoBuffer<int> stripeSizeBuf(nscales);
-        int* stripeSizes = stripeSizeBuf.data();
+        int* stripeSizes = stripeSizeBuf;
         const FeatureEvaluator::ScaleData* s = &featureEvaluator->getScaleData(0);
         Size szw = s->getWorkingSize(data.origWinSize);
         int nstripes = cvCeil(szw.width/32.);

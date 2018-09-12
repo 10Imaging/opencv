@@ -47,9 +47,6 @@
 #include "opencv2/core/utility.hpp"
 #include "opencv2/core/private.hpp"
 
-#include <opencv2/core/utils/configuration.private.hpp>
-#include <opencv2/core/utils/logger.hpp>
-
 #include "opencv2/imgcodecs.hpp"
 
 #include "opencv2/imgproc.hpp"
@@ -62,7 +59,7 @@
 #include <string.h>
 #include <limits.h>
 #include <ctype.h>
-#include <assert.h>  // FIXIT remove this
+#include <assert.h>
 
 #if defined _WIN32 || defined WINCE
     #if !defined _WIN32_WINNT
@@ -119,6 +116,10 @@ CvVideoWriter* cvCreateVideoWriter_Win32( const char* filename, int fourcc,
 CvVideoWriter* cvCreateVideoWriter_VFW( const char* filename, int fourcc,
                                         double fps, CvSize frameSize, int is_color );
 CvCapture* cvCreateCameraCapture_DShow( int index );
+CvCapture* cvCreateCameraCapture_MSMF( int index );
+CvCapture* cvCreateFileCapture_MSMF (const char* filename);
+CvVideoWriter* cvCreateVideoWriter_MSMF( const char* filename, int fourcc,
+                                        double fps, CvSize frameSize, int is_color );
 CvCapture* cvCreateCameraCapture_OpenNI( int index );
 CvCapture* cvCreateCameraCapture_OpenNI2( int index );
 CvCapture* cvCreateFileCapture_OpenNI( const char* filename );
@@ -132,11 +133,20 @@ CvCapture* cvCreateCameraCapture_Aravis( int index );
 CvCapture* cvCreateFileCapture_Images(const char* filename);
 CvVideoWriter* cvCreateVideoWriter_Images(const char* filename);
 
+CvCapture* cvCreateFileCapture_XINE (const char* filename);
+
 
 #define CV_CAP_GSTREAMER_1394		0
 #define CV_CAP_GSTREAMER_V4L		1
 #define CV_CAP_GSTREAMER_V4L2		2
 #define CV_CAP_GSTREAMER_FILE		3
+
+CvCapture* cvCreateCapture_GStreamer(int type, const char *filename);
+CvCapture* cvCreateFileCapture_FFMPEG_proxy(const char* filename);
+
+
+CvVideoWriter* cvCreateVideoWriter_FFMPEG_proxy( const char* filename, int fourcc,
+                                            double fps, CvSize frameSize, int is_color );
 
 CvCapture * cvCreateFileCapture_QT (const char  * filename);
 CvCapture * cvCreateCameraCapture_QT  (const int     index);
@@ -181,23 +191,10 @@ namespace cv
     };
 
     Ptr<IVideoCapture> createMotionJpegCapture(const String& filename);
-    Ptr<IVideoWriter> createMotionJpegWriter(const String& filename, int fourcc, double fps, Size frameSize, bool iscolor);
+    Ptr<IVideoWriter> createMotionJpegWriter( const String& filename, double fps, Size frameSize, bool iscolor );
 
     Ptr<IVideoCapture> createGPhoto2Capture(int index);
     Ptr<IVideoCapture> createGPhoto2Capture(const String& deviceName);
-
-
-    Ptr<IVideoCapture> createXINECapture(const char* filename);
-
-    Ptr<IVideoCapture> createGStreamerCapture(const String& filename);
-    Ptr<IVideoCapture> createGStreamerCapture(int index);
-
-    Ptr<cv::IVideoCapture> cvCreateFileCapture_FFMPEG_proxy(const String& filename);
-    Ptr<IVideoWriter> cvCreateVideoWriter_FFMPEG_proxy(const String& filename, int fourcc, double fps, Size frameSize, int isColor);
-
-    Ptr<IVideoCapture> cvCreateCapture_MSMF(int index);
-    Ptr<IVideoCapture> cvCreateCapture_MSMF(const String& filename);
-    Ptr<IVideoWriter> cvCreateVideoWriter_MSMF(const String& filename, int fourcc, double fps, Size frameSize, int is_color);
 }
 
 #endif /* __VIDEOIO_H_ */

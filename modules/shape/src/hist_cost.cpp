@@ -45,7 +45,7 @@ namespace cv
 {
 
 /*!  */
-class NormHistogramCostExtractorImpl CV_FINAL : public NormHistogramCostExtractor
+class NormHistogramCostExtractorImpl : public NormHistogramCostExtractor
 {
 public:
     /* Constructors */
@@ -58,46 +58,46 @@ public:
     }
 
     /* Destructor */
-    ~NormHistogramCostExtractorImpl() CV_OVERRIDE
+    ~NormHistogramCostExtractorImpl()
     {
     }
 
     //! the main operator
-    virtual void buildCostMatrix(InputArray descriptors1, InputArray descriptors2, OutputArray costMatrix) CV_OVERRIDE;
+    virtual void buildCostMatrix(InputArray descriptors1, InputArray descriptors2, OutputArray costMatrix);
 
     //! Setters/Getters
-    void setNDummies(int _nDummies) CV_OVERRIDE
+    void setNDummies(int _nDummies)
     {
         nDummies=_nDummies;
     }
 
-    int getNDummies() const CV_OVERRIDE
+    int getNDummies() const
     {
         return nDummies;
     }
 
-    void setDefaultCost(float _defaultCost) CV_OVERRIDE
+    void setDefaultCost(float _defaultCost)
     {
         defaultCost=_defaultCost;
     }
 
-    float getDefaultCost() const CV_OVERRIDE
+    float getDefaultCost() const
     {
         return defaultCost;
     }
 
-    virtual void setNormFlag(int _flag) CV_OVERRIDE
+    virtual void setNormFlag(int _flag)
     {
         flag=_flag;
     }
 
-    virtual int getNormFlag() const CV_OVERRIDE
+    virtual int getNormFlag() const
     {
         return flag;
     }
 
     //! write/read
-    virtual void write(FileStorage& fs) const CV_OVERRIDE
+    virtual void write(FileStorage& fs) const
     {
         writeFormat(fs);
         fs << "name" << name_
@@ -106,7 +106,7 @@ public:
            << "default" << defaultCost;
     }
 
-    virtual void read(const FileNode& fn) CV_OVERRIDE
+    virtual void read(const FileNode& fn)
     {
         CV_Assert( (String)fn["name"] == name_ );
         flag = (int)fn["flag"];
@@ -173,7 +173,7 @@ Ptr <HistogramCostExtractor> createNormHistogramCostExtractor(int flag, int nDum
 }
 
 /*!  */
-class EMDHistogramCostExtractorImpl CV_FINAL : public EMDHistogramCostExtractor
+class EMDHistogramCostExtractorImpl : public EMDHistogramCostExtractor
 {
 public:
     /* Constructors */
@@ -186,46 +186,46 @@ public:
     }
 
     /* Destructor */
-    ~EMDHistogramCostExtractorImpl() CV_OVERRIDE
+    ~EMDHistogramCostExtractorImpl()
     {
     }
 
     //! the main operator
-    virtual void buildCostMatrix(InputArray descriptors1, InputArray descriptors2, OutputArray costMatrix) CV_OVERRIDE;
+    virtual void buildCostMatrix(InputArray descriptors1, InputArray descriptors2, OutputArray costMatrix);
 
     //! Setters/Getters
-    void setNDummies(int _nDummies) CV_OVERRIDE
+    void setNDummies(int _nDummies)
     {
         nDummies=_nDummies;
     }
 
-    int getNDummies() const CV_OVERRIDE
+    int getNDummies() const
     {
         return nDummies;
     }
 
-    void setDefaultCost(float _defaultCost) CV_OVERRIDE
+    void setDefaultCost(float _defaultCost)
     {
         defaultCost=_defaultCost;
     }
 
-    float getDefaultCost() const CV_OVERRIDE
+    float getDefaultCost() const
     {
         return defaultCost;
     }
 
-    virtual void setNormFlag(int _flag) CV_OVERRIDE
+    virtual void setNormFlag(int _flag)
     {
         flag=_flag;
     }
 
-    virtual int getNormFlag() const CV_OVERRIDE
+    virtual int getNormFlag() const
     {
         return flag;
     }
 
     //! write/read
-    virtual void write(FileStorage& fs) const CV_OVERRIDE
+    virtual void write(FileStorage& fs) const
     {
         writeFormat(fs);
         fs << "name" << name_
@@ -234,7 +234,7 @@ public:
            << "default" << defaultCost;
     }
 
-    virtual void read(const FileNode& fn) CV_OVERRIDE
+    virtual void read(const FileNode& fn)
     {
         CV_Assert( (String)fn["name"] == name_ );
         flag = (int)fn["flag"];
@@ -313,7 +313,7 @@ Ptr <HistogramCostExtractor> createEMDHistogramCostExtractor(int flag, int nDumm
 }
 
 /*!  */
-class ChiHistogramCostExtractorImpl CV_FINAL : public ChiHistogramCostExtractor
+class ChiHistogramCostExtractorImpl : public ChiHistogramCostExtractor
 {
 public:
     /* Constructors */
@@ -325,36 +325,36 @@ public:
     }
 
     /* Destructor */
-    ~ChiHistogramCostExtractorImpl() CV_OVERRIDE
+    ~ChiHistogramCostExtractorImpl()
     {
     }
 
     //! the main operator
-    virtual void buildCostMatrix(InputArray descriptors1, InputArray descriptors2, OutputArray costMatrix) CV_OVERRIDE;
+    virtual void buildCostMatrix(InputArray descriptors1, InputArray descriptors2, OutputArray costMatrix);
 
     //! setters / getters
-    void setNDummies(int _nDummies) CV_OVERRIDE
+    void setNDummies(int _nDummies)
     {
         nDummies=_nDummies;
     }
 
-    int getNDummies() const CV_OVERRIDE
+    int getNDummies() const
     {
         return nDummies;
     }
 
-    void setDefaultCost(float _defaultCost) CV_OVERRIDE
+    void setDefaultCost(float _defaultCost)
     {
         defaultCost=_defaultCost;
     }
 
-    float getDefaultCost() const CV_OVERRIDE
+    float getDefaultCost() const
     {
         return defaultCost;
     }
 
     //! write/read
-    virtual void write(FileStorage& fs) const CV_OVERRIDE
+    virtual void write(FileStorage& fs) const
     {
         writeFormat(fs);
         fs << "name" << name_
@@ -362,7 +362,7 @@ public:
            << "default" << defaultCost;
     }
 
-    virtual void read(const FileNode& fn) CV_OVERRIDE
+    virtual void read(const FileNode& fn)
     {
         CV_Assert( (String)fn["name"] == name_ );
         nDummies = (int)fn["dummies"];
@@ -432,7 +432,7 @@ Ptr <HistogramCostExtractor> createChiHistogramCostExtractor(int nDummies, float
 }
 
 /*!  */
-class EMDL1HistogramCostExtractorImpl CV_FINAL : public EMDL1HistogramCostExtractor
+class EMDL1HistogramCostExtractorImpl : public EMDL1HistogramCostExtractor
 {
 public:
     /* Constructors */
@@ -444,36 +444,36 @@ public:
     }
 
     /* Destructor */
-    ~EMDL1HistogramCostExtractorImpl() CV_OVERRIDE
+    ~EMDL1HistogramCostExtractorImpl()
     {
     }
 
     //! the main operator
-    virtual void buildCostMatrix(InputArray descriptors1, InputArray descriptors2, OutputArray costMatrix) CV_OVERRIDE;
+    virtual void buildCostMatrix(InputArray descriptors1, InputArray descriptors2, OutputArray costMatrix);
 
     //! setters / getters
-    void setNDummies(int _nDummies) CV_OVERRIDE
+    void setNDummies(int _nDummies)
     {
         nDummies=_nDummies;
     }
 
-    int getNDummies() const CV_OVERRIDE
+    int getNDummies() const
     {
         return nDummies;
     }
 
-    void setDefaultCost(float _defaultCost) CV_OVERRIDE
+    void setDefaultCost(float _defaultCost)
     {
         defaultCost=_defaultCost;
     }
 
-    float getDefaultCost() const CV_OVERRIDE
+    float getDefaultCost() const
     {
         return defaultCost;
     }
 
     //! write/read
-    virtual void write(FileStorage& fs) const CV_OVERRIDE
+    virtual void write(FileStorage& fs) const
     {
         writeFormat(fs);
         fs << "name" << name_
@@ -481,7 +481,7 @@ public:
            << "default" << defaultCost;
     }
 
-    virtual void read(const FileNode& fn) CV_OVERRIDE
+    virtual void read(const FileNode& fn)
     {
         CV_Assert( (String)fn["name"] == name_ );
         nDummies = (int)fn["dummies"];

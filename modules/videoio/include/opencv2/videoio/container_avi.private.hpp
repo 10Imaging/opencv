@@ -106,8 +106,7 @@ protected:
     bool parseMovi(frame_list& in_frame_list)
     {
         //not implemented
-        CV_UNUSED(in_frame_list);
-        // FIXIT: in_frame_list.empty();
+        in_frame_list.empty();
         return true;
     }
     bool parseStrl(char stream_id, Codecs codec_);
@@ -153,7 +152,7 @@ public:
     bool initContainer(const String& filename, double fps, Size size, bool iscolor);
     void startWriteAVI(int stream_count);
     void writeStreamHeader(Codecs codec_);
-    void startWriteChunk(uint32_t fourcc);
+    void startWriteChunk(int fourcc);
     void endWriteChunk();
 
     int getAVIIndex(int stream_number, StreamType strm_type);

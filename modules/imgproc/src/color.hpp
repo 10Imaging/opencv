@@ -247,14 +247,10 @@ struct CvtHelper
 {
     CvtHelper(InputArray _src, OutputArray _dst, int dcn)
     {
-        CV_Assert(!_src.empty());
-
         int stype = _src.type();
         scn = CV_MAT_CN(stype), depth = CV_MAT_DEPTH(stype);
 
-        CV_Check(scn, VScn::contains(scn), "Invalid number of channels in input image");
-        CV_Check(dcn, VDcn::contains(dcn), "Invalid number of channels in output image");
-        CV_CheckDepth(depth, VDepth::contains(depth), "Unsupported depth of input image");
+        CV_Assert( VScn::contains(scn) && VDcn::contains(dcn) && VDepth::contains(depth) );
 
         if (_src.getObj() == _dst.getObj()) // inplace processing (#6653)
             _src.copyTo(src);
@@ -289,8 +285,7 @@ struct CvtHelper
 template< typename VScn, typename VDcn, typename VDepth, SizePolicy sizePolicy = NONE >
 struct OclHelper
 {
-    OclHelper( InputArray _src, OutputArray _dst, int dcn) :
-        nArgs(0)
+    OclHelper( InputArray _src, OutputArray _dst, int dcn)
     {
         src = _src.getUMat();
         Size sz = src.size(), dstSz;
@@ -394,7 +389,7 @@ public:
     {
     }
 
-    virtual void operator()(const Range& range) const CV_OVERRIDE
+    virtual void operator()(const Range& range) const
     {
         CV_TRACE_FUNCTION();
 
@@ -452,7 +447,7 @@ public:
         *ok = true;
     }
 
-    virtual void operator()(const Range& range) const CV_OVERRIDE
+    virtual void operator()(const Range& range) const
     {
         const void *yS = src_data + src_step * range.start;
         void *yD = dst_data + dst_step * range.start;

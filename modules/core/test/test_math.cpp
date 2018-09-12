@@ -134,9 +134,7 @@ double Core_PowTest::get_success_error_level( int test_case_idx, int i, int j )
     if( depth < CV_32F )
         return power == cvRound(power) && power >= 0 ? 0 : 1;
     else
-    {
-        return depth != CV_64F ? Base::get_success_error_level( test_case_idx, i, j ) : DBL_EPSILON*1024*1.1;
-    }
+        return Base::get_success_error_level( test_case_idx, i, j );
 }
 
 
@@ -2444,6 +2442,7 @@ TEST(Core_SolvePoly, regression_5599)
         double prec;
         prec = cv::solvePoly(coefs, r);
         EXPECT_LE(prec, 1e-6);
+        EXPECT_EQ((long unsigned)4, r.total());
         EXPECT_EQ(4u, r.total());
         //std::cout << "Preciseness = " << prec << std::endl;
         //std::cout << "roots:\n" << r << "\n" << std::endl;
@@ -3129,75 +3128,6 @@ TEST(Core_QR_Solver, accuracy64f)
     for (int i = 0; i < A.cols; i++)
       A.at<double>(0, i) = A.at<double>(1, i);
     ASSERT_FALSE(solve(A, B, solutionQR, DECOMP_QR));
-}
-
-TEST(Core_Solve, regression_11888)
-{
-    cv::Matx<float, 3, 2> A(
-        2, 1,
-        3, 1,
-        6, 1
-    );
-    cv::Vec<float, 3> b(4, 5, 7);
-    cv::Matx<float, 2, 1> xQR = A.solve(b, DECOMP_QR);
-    cv::Matx<float, 2, 1> xSVD = A.solve(b, DECOMP_SVD);
-    EXPECT_LE(cvtest::norm(xQR, xSVD, NORM_L2 | NORM_RELATIVE), 0.001);
-    cv::Matx<float, 2, 3> iA = A.inv(DECOMP_SVD);
-    EXPECT_LE(cvtest::norm(iA*A, Matx<float, 2, 2>::eye(), NORM_L2), 1e-3);
-    EXPECT_ANY_THROW({
-       /*cv::Matx<float, 2, 1> xLU =*/ A.solve(b, DECOMP_LU);
-       std::cout << "FATAL ERROR" << std::endl;
-    });
-}
-
-TEST(Core_Solve, Matx_2_2)
-{
-    cv::Matx<float, 2, 2> A(
-        2, 1,
-        1, 1
-    );
-    cv::Vec<float, 2> b(4, 5);
-    cv::Matx<float, 2, 1> xLU = A.solve(b, DECOMP_LU);
-    cv::Matx<float, 2, 1> xQR = A.solve(b, DECOMP_QR);
-    cv::Matx<float, 2, 1> xSVD = A.solve(b, DECOMP_SVD);
-    EXPECT_LE(cvtest::norm(xQR, xSVD, NORM_L2 | NORM_RELATIVE), 1e-3);
-    EXPECT_LE(cvtest::norm(xQR, xLU, NORM_L2 | NORM_RELATIVE), 1e-3);
-    cv::Matx<float, 2, 2> iA = A.inv(DECOMP_SVD);
-    EXPECT_LE(cvtest::norm(iA*A, Matx<float, 2, 2>::eye(), NORM_L2), 1e-3);
-}
-TEST(Core_Solve, Matx_3_3)
-{
-    cv::Matx<float, 3, 3> A(
-        2, 1, 0,
-        0, 1, 1,
-        1, 0, 1
-    );
-    cv::Vec<float, 3> b(4, 5, 6);
-    cv::Matx<float, 3, 1> xLU = A.solve(b, DECOMP_LU);
-    cv::Matx<float, 3, 1> xQR = A.solve(b, DECOMP_QR);
-    cv::Matx<float, 3, 1> xSVD = A.solve(b, DECOMP_SVD);
-    EXPECT_LE(cvtest::norm(xQR, xSVD, NORM_L2 | NORM_RELATIVE), 1e-3);
-    EXPECT_LE(cvtest::norm(xQR, xLU, NORM_L2 | NORM_RELATIVE), 1e-3);
-    cv::Matx<float, 3, 3> iA = A.inv(DECOMP_SVD);
-    EXPECT_LE(cvtest::norm(iA*A, Matx<float, 3, 3>::eye(), NORM_L2), 1e-3);
-}
-
-TEST(Core_Solve, Matx_4_4)
-{
-    cv::Matx<float, 4, 4> A(
-        2, 1, 0, 4,
-        0, 1, 1, 3,
-        1, 0, 1, 2,
-        2, 2, 0, 1
-    );
-    cv::Vec<float, 4> b(4, 5, 6, 7);
-    cv::Matx<float, 4, 1> xLU = A.solve(b, DECOMP_LU);
-    cv::Matx<float, 4, 1> xQR = A.solve(b, DECOMP_QR);
-    cv::Matx<float, 4, 1> xSVD = A.solve(b, DECOMP_SVD);
-    EXPECT_LE(cvtest::norm(xQR, xSVD, NORM_L2 | NORM_RELATIVE), 1e-3);
-    EXPECT_LE(cvtest::norm(xQR, xLU, NORM_L2 | NORM_RELATIVE), 1e-3);
-    cv::Matx<float, 4, 4> iA = A.inv(DECOMP_SVD);
-    EXPECT_LE(cvtest::norm(iA*A, Matx<float, 4, 4>::eye(), NORM_L2), 1e-3);
 }
 
 softdouble naiveExp(softdouble x)

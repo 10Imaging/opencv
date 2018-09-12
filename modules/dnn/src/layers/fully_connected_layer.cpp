@@ -42,8 +42,8 @@
 
 #include "../precomp.hpp"
 #include "layers_common.hpp"
-#include "../op_halide.hpp"
-#include "../op_inf_engine.hpp"
+#include "op_halide.hpp"
+#include "op_inf_engine.hpp"
 #include <opencv2/dnn/shape_utils.hpp>
 
 #ifdef HAVE_OPENCL
@@ -56,7 +56,7 @@ namespace cv
 namespace dnn
 {
 
-class FullyConnectedLayerImpl CV_FINAL : public InnerProductLayer
+class FullyConnectedLayerImpl : public InnerProductLayer
 {
 public:
     enum { VEC_ALIGN = 8 };
@@ -64,7 +64,6 @@ public:
 #ifdef HAVE_OPENCL
     Ptr<OCL4DNNInnerProduct<float> > innerProductOp;
     std::vector<UMat> umat_blobs;
-    std::vector<UMat> half_blobs;
 #endif
 
     FullyConnectedLayerImpl(const LayerParams& params)
@@ -107,7 +106,7 @@ public:
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
                          const int requiredOutputs,
                          std::vector<MatShape> &outputs,
-                         std::vector<MatShape> &) const CV_OVERRIDE
+                         std::vector<MatShape> &) const
     {
         CV_Assert(inputs.size() == 1);
         CV_Assert(1 <= blobs.size() && blobs.size() <= 2);
@@ -126,22 +125,17 @@ public:
         return false;
     }
 
-    virtual bool supportBackend(int backendId) CV_OVERRIDE
+    virtual bool supportBackend(int backendId)
     {
-        return backendId == DNN_BACKEND_OPENCV ||
+        return backendId == DNN_BACKEND_DEFAULT ||
                backendId == DNN_BACKEND_HALIDE && haveHalide() && axis == 1 ||
                backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine() && axis == 1;
     }
 
-    virtual bool setActivation(const Ptr<ActivationLayer>& layer) CV_OVERRIDE
+    virtual bool setActivation(const Ptr<ActivationLayer>& layer)
     {
-        if (activ.empty() || layer.empty())
-        {
-            activ = layer;
-            return !activ.empty();
-        }
-        else
-            return false;
+        activ = layer;
+        return !activ.empty();
     }
 
     class FullyConnected : public ParallelLoopBody
@@ -174,7 +168,7 @@ public:
             parallel_for_(Range(0, nstripes), p, nstripes);
         }
 
-        void operator()(const Range& r) const CV_OVERRIDE
+        void operator()(const Range& r) const
         {
             int valign = FullyConnectedLayerImpl::VEC_ALIGN;
             int nsamples = srcMat->rows;
@@ -187,7 +181,7 @@ public:
             size_t stripeEnd = r.end == nstripes ? total : std::min(r.end*stripeSize, total);
             size_t wstep = weights->step1();
             AutoBuffer<float> srcbuf(vecsize_aligned + valign);
-            float* sptr = alignPtr(srcbuf.data(), (int)(valign*sizeof(float)));
+            float* sptr = alignPtr((float*)srcbuf, (int)(valign*sizeof(float)));
 
             for( k = vecsize; k < vecsize_aligned; k++ )
                 sptr[k] = 0.f;
@@ -273,7 +267,7 @@ public:
     };
 
 #ifdef HAVE_OPENCL
-    void finalize(const std::vector<Mat*> &inputs, std::vector<Mat> &outputs) CV_OVERRIDE
+    void finalize(const std::vector<Mat*> &inputs, std::vector<Mat> &outputs)
     {
         innerProductOp.release();
     }
@@ -283,7 +277,6 @@ public:
         std::vector<UMat> inputs;
         std::vector<UMat> outputs;
 
-        bool use_half = (inps.depth() == CV_16S);
         inps.getUMatVector(inputs);
         outs.getUMatVector(outputs);
 
@@ -300,21 +293,11 @@ public:
             config.bias_term = bias;
             config.M = outerSize;
             config.K = innerSize;
-            config.use_half = use_half;
-
-            if (use_half)
-            {
-                half_blobs.resize(umat_blobs.size());
-                for (int i = 0; i < umat_blobs.size(); i++)
-                {
-                    if (!umat_blobs[i].empty())
-                        convertFp16(umat_blobs[i], half_blobs[i]);
-                }
-            }
 
             innerProductOp = Ptr<OCL4DNNInnerProduct<float> >(new OCL4DNNInnerProduct<float>(config));
         }
 
+        UMat biasOnesMat = UMat::ones(outerSize, 1, umat_blobs[0].type());
         for (size_t i = 0; i < inputs.size(); i++)
         {
             MatShape inshape, outshape;
@@ -324,18 +307,16 @@ public:
             UMat srcMat, dstMat;
             srcMat = inputs[i].reshape(1, inshape.size(), &inshape[0]);
             dstMat = outputs[i].reshape(1, outshape.size(), &outshape[0]);
+            dstMat.setTo(0.0f);
 
-            if (!innerProductOp->Forward(srcMat, (use_half) ? half_blobs[0] : umat_blobs[0],
-                                         (bias) ? (use_half ? half_blobs[1] : umat_blobs[1]) : UMat(),
-                                         dstMat))
+            if (!innerProductOp->Forward(srcMat, umat_blobs[0], (bias) ? umat_blobs[1] : UMat(), dstMat))
             {
                 ret = false;
                 break;
             }
 
-            if (!use_half && bias && (outerSize > 1))
+            if (bias && (outerSize > 1))
             {
-                UMat biasOnesMat = UMat::ones(outerSize, 1, umat_blobs[0].type());
                 UMat& biases = umat_blobs[1];
                 cv::gemm(biasOnesMat, biases, 1, dstMat, 1, dstMat, 0);
             }
@@ -358,7 +339,6 @@ public:
 
             if (bias)
             {
-                UMat biasOnesMat = UMat::ones(outerSize, 1, umat_blobs[0].type());
                 UMat& biases = umat_blobs[1];
                 cv::gemm(biasOnesMat, biases, 1, dstMat, 1, dstMat, 0);
             }
@@ -368,19 +348,19 @@ public:
     }
 #endif
 
-    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE
+    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr)
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
 
-        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget) &&
+        CV_OCL_RUN((preferableTarget == DNN_TARGET_OPENCL) &&
                    OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
                    forward_ocl(inputs_arr, outputs_arr, internals_arr))
 
         Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
     }
 
-    void forward(std::vector<Mat*> &input, std::vector<Mat> &output, std::vector<Mat> &) CV_OVERRIDE
+    void forward(std::vector<Mat*> &input, std::vector<Mat> &output, std::vector<Mat> &)
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
@@ -398,7 +378,7 @@ public:
         }
     }
 
-    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &inputs) CV_OVERRIDE
+    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &inputs)
     {
 #ifdef HAVE_HALIDE
         int inW, inH, inC, inN, outC = blobs[0].size[0];
@@ -422,7 +402,7 @@ public:
         return Ptr<BackendNode>();
     }
 
-    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&) CV_OVERRIDE
+    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&)
     {
 #ifdef HAVE_INF_ENGINE
         InferenceEngine::LayerParams lp;
@@ -432,16 +412,16 @@ public:
         std::shared_ptr<InferenceEngine::FullyConnectedLayer> ieLayer(new InferenceEngine::FullyConnectedLayer(lp));
 
         ieLayer->_out_num = blobs[0].size[0];
-        ieLayer->_weights = wrapToInfEngineBlob(blobs[0], {(size_t)blobs[0].size[0], (size_t)blobs[0].size[1], 1, 1}, InferenceEngine::Layout::OIHW);
+        ieLayer->_weights = wrapToInfEngineBlob(blobs[0]);
         if (blobs.size() > 1)
-            ieLayer->_biases = wrapToInfEngineBlob(blobs[1], {(size_t)ieLayer->_out_num}, InferenceEngine::Layout::C);
+            ieLayer->_biases = wrapToInfEngineBlob(blobs[1]);
         return Ptr<BackendNode>(new InfEngineBackendNode(ieLayer));
 #endif  // HAVE_INF_ENGINE
         return Ptr<BackendNode>();
     }
 
     virtual int64 getFLOPS(const std::vector<MatShape> &inputs,
-                           const std::vector<MatShape> &outputs) const CV_OVERRIDE
+                           const std::vector<MatShape> &outputs) const
     {
         (void)inputs; // suppress unused variable warning
         long flops = 0;

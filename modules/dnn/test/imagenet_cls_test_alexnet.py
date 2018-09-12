@@ -1,4 +1,3 @@
-from __future__ import print_function
 from abc import ABCMeta, abstractmethod
 import numpy as np
 import sys
@@ -16,11 +15,6 @@ try:
 except ImportError:
     raise ImportError('Can\'t find OpenCV Python module. If you\'ve built it from sources without installation, '
                       'configure environment variable PYTHONPATH to "opencv_build_dir/lib" directory (with "python3" subdirectory if required)')
-
-try:
-    xrange          # Python 2
-except NameError:
-    xrange = range  # Python 3
 
 
 class DataFetch(object):
@@ -157,7 +151,7 @@ class DnnCaffeModel(Framework):
 
 
 class ClsAccEvaluation:
-    log = sys.stdout
+    log = file
     img_classes = {}
     batch_size = 0
 
@@ -199,26 +193,26 @@ class ClsAccEvaluation:
                 fw_accuracy.append(100 * correct_answers[i] / float(samples_handled))
                 frameworks_out.append(out)
                 inference_time[i] += end - start
-                print(samples_handled, 'Accuracy for', frameworks[i].get_name() + ':', fw_accuracy[i], file=self.log)
-                print("Inference time, ms ", \
-                    frameworks[i].get_name(), inference_time[i] / samples_handled * 1000, file=self.log)
+                print >> self.log, samples_handled, 'Accuracy for', frameworks[i].get_name() + ':', fw_accuracy[i]
+                print >> self.log, "Inference time, ms ", \
+                    frameworks[i].get_name(), inference_time[i] / samples_handled * 1000
 
             for i in range(1, len(frameworks)):
                 log_str = frameworks[0].get_name() + " vs " + frameworks[i].get_name() + ':'
                 diff = np.abs(frameworks_out[0] - frameworks_out[i])
                 l1_diff = np.sum(diff) / diff.size
-                print(samples_handled, "L1 difference", log_str, l1_diff, file=self.log)
+                print >> self.log, samples_handled, "L1 difference", log_str, l1_diff
                 blobs_l1_diff[i] += l1_diff
                 blobs_l1_diff_count[i] += 1
                 if np.max(diff) > blobs_l_inf_diff[i]:
                     blobs_l_inf_diff[i] = np.max(diff)
-                print(samples_handled, "L_INF difference", log_str, blobs_l_inf_diff[i], file=self.log)
+                print >> self.log, samples_handled, "L_INF difference", log_str, blobs_l_inf_diff[i]
 
             self.log.flush()
 
         for i in range(1, len(blobs_l1_diff)):
             log_str = frameworks[0].get_name() + " vs " + frameworks[i].get_name() + ':'
-            print('Final l1 diff', log_str, blobs_l1_diff[i] / blobs_l1_diff_count[i], file=self.log)
+            print >> self.log, 'Final l1 diff', log_str, blobs_l1_diff[i] / blobs_l1_diff_count[i]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -24,12 +24,12 @@ class CascadeDetectorAdapter: public DetectionBasedTracker::IDetector
             CV_Assert(detector);
         }
 
-        void detect(const cv::Mat &Image, std::vector<cv::Rect> &objects) CV_OVERRIDE
+        void detect(const cv::Mat &Image, std::vector<cv::Rect> &objects)
         {
             Detector->detectMultiScale(Image, objects, scaleFactor, minNeighbours, 0, minObjSize, maxObjSize);
         }
 
-        virtual ~CascadeDetectorAdapter() CV_OVERRIDE
+        virtual ~CascadeDetectorAdapter()
         {}
 
     private:

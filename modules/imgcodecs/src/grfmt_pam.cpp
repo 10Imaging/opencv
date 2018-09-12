@@ -46,13 +46,10 @@
 //
 //M*/
 
-#include "precomp.hpp"
-
-
-#ifdef HAVE_IMGCODEC_PXM
 
 #include <cerrno>
 
+#include "precomp.hpp"
 #include "utils.hpp"
 #include "grfmt_pam.hpp"
 
@@ -496,7 +493,9 @@ bool  PAMDecoder::readData( Mat& img )
 
     /* setting buffer to max data size so scaling up is possible */
     AutoBuffer<uchar> _src(src_elems_per_row * 2);
-    uchar* src = _src.data();
+    uchar* src = _src;
+    AutoBuffer<uchar> _gray_palette;
+    uchar* gray_palette = _gray_palette;
 
     if( m_offset < 0 || !m_strm.isOpened())
         return false;
@@ -542,7 +541,10 @@ bool  PAMDecoder::readData( Mat& img )
             if (bit_mode) {
                 if( target_channels == 1 )
                 {
-                    uchar gray_palette[2] = {0, 255};
+                    _gray_palette.allocate(2);
+                    gray_palette = _gray_palette;
+                    gray_palette[0] = 0;
+                    gray_palette[1] = 255;
                     for( y = 0; y < m_height; y++, data += imp_stride )
                     {
                         m_strm.getBytes( src, src_stride );
@@ -678,7 +680,7 @@ bool PAMEncoder::write( const Mat& img, const std::vector<int>& params )
         bufsize = tmp;
 
     AutoBuffer<char> _buffer(bufsize);
-    char* buffer = _buffer.data();
+    char* buffer = _buffer;
 
     /* write header */
     tmp = 0;
@@ -689,7 +691,7 @@ bool PAMEncoder::write( const Mat& img, const std::vector<int>& params )
     tmp += sprintf( buffer + tmp, "MAXVAL %d\n", (1 << img.elemSize1()*8) - 1);
     if (fmt)
         tmp += sprintf( buffer + tmp, "TUPLTYPE %s\n", fmt->name );
-    sprintf( buffer + tmp, "ENDHDR\n" );
+    tmp += sprintf( buffer + tmp, "ENDHDR\n" );
 
     strm.putBytes( buffer, (int)strlen(buffer) );
     /* write data */
@@ -718,5 +720,3 @@ bool PAMEncoder::write( const Mat& img, const std::vector<int>& params )
 }
 
 }
-
-#endif

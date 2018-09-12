@@ -47,7 +47,7 @@
 namespace cv
 {
 
-class MergeDebevecImpl CV_FINAL : public MergeDebevec
+class MergeDebevecImpl : public MergeDebevec
 {
 public:
     MergeDebevecImpl() :
@@ -56,7 +56,7 @@ public:
     {
     }
 
-    void process(InputArrayOfArrays src, OutputArray dst, InputArray _times, InputArray input_response) CV_OVERRIDE
+    void process(InputArrayOfArrays src, OutputArray dst, InputArray _times, InputArray input_response)
     {
         CV_INSTRUMENT_REGION()
 
@@ -122,7 +122,7 @@ public:
         exp(result, result);
     }
 
-    void process(InputArrayOfArrays src, OutputArray dst, InputArray times) CV_OVERRIDE
+    void process(InputArrayOfArrays src, OutputArray dst, InputArray times)
     {
         CV_INSTRUMENT_REGION()
 
@@ -139,7 +139,7 @@ Ptr<MergeDebevec> createMergeDebevec()
     return makePtr<MergeDebevecImpl>();
 }
 
-class MergeMertensImpl CV_FINAL : public MergeMertens
+class MergeMertensImpl : public MergeMertens
 {
 public:
     MergeMertensImpl(float _wcon, float _wsat, float _wexp) :
@@ -150,14 +150,14 @@ public:
     {
     }
 
-    void process(InputArrayOfArrays src, OutputArrayOfArrays dst, InputArray, InputArray) CV_OVERRIDE
+    void process(InputArrayOfArrays src, OutputArrayOfArrays dst, InputArray, InputArray)
     {
         CV_INSTRUMENT_REGION()
 
         process(src, dst);
     }
 
-    void process(InputArrayOfArrays src, OutputArray dst) CV_OVERRIDE
+    void process(InputArrayOfArrays src, OutputArray dst)
     {
         CV_INSTRUMENT_REGION()
 
@@ -259,19 +259,19 @@ public:
             res_pyr[lvl - 1] += up;
         }
         dst.create(size, CV_32FCC);
-        res_pyr[0].copyTo(dst);
+        res_pyr[0].copyTo(dst.getMat());
     }
 
-    float getContrastWeight() const CV_OVERRIDE { return wcon; }
-    void setContrastWeight(float val) CV_OVERRIDE { wcon = val; }
+    float getContrastWeight() const { return wcon; }
+    void setContrastWeight(float val) { wcon = val; }
 
-    float getSaturationWeight() const CV_OVERRIDE { return wsat; }
-    void setSaturationWeight(float val) CV_OVERRIDE { wsat = val; }
+    float getSaturationWeight() const { return wsat; }
+    void setSaturationWeight(float val) { wsat = val; }
 
-    float getExposureWeight() const CV_OVERRIDE { return wexp; }
-    void setExposureWeight(float val) CV_OVERRIDE { wexp = val; }
+    float getExposureWeight() const { return wexp; }
+    void setExposureWeight(float val) { wexp = val; }
 
-    void write(FileStorage& fs) const CV_OVERRIDE
+    void write(FileStorage& fs) const
     {
         writeFormat(fs);
         fs << "name" << name
@@ -280,7 +280,7 @@ public:
            << "exposure_weight" << wexp;
     }
 
-    void read(const FileNode& fn) CV_OVERRIDE
+    void read(const FileNode& fn)
     {
         FileNode n = fn["name"];
         CV_Assert(n.isString() && String(n) == name);
@@ -299,7 +299,7 @@ Ptr<MergeMertens> createMergeMertens(float wcon, float wsat, float wexp)
     return makePtr<MergeMertensImpl>(wcon, wsat, wexp);
 }
 
-class MergeRobertsonImpl CV_FINAL : public MergeRobertson
+class MergeRobertsonImpl : public MergeRobertson
 {
 public:
     MergeRobertsonImpl() :
@@ -308,7 +308,7 @@ public:
     {
     }
 
-    void process(InputArrayOfArrays src, OutputArray dst, InputArray _times, InputArray input_response) CV_OVERRIDE
+    void process(InputArrayOfArrays src, OutputArray dst, InputArray _times, InputArray input_response)
     {
         CV_INSTRUMENT_REGION()
 
@@ -347,7 +347,7 @@ public:
         result = result.mul(1 / wsum);
     }
 
-    void process(InputArrayOfArrays src, OutputArray dst, InputArray times) CV_OVERRIDE
+    void process(InputArrayOfArrays src, OutputArray dst, InputArray times)
     {
         CV_INSTRUMENT_REGION()
 

@@ -62,7 +62,7 @@ public:
     VideoFileSourceImpl(const String &path, bool volatileFrame)
         : path_(path), volatileFrame_(volatileFrame) { reset(); }
 
-    virtual void reset() CV_OVERRIDE
+    virtual void reset()
     {
 #ifdef HAVE_OPENCV_VIDEOIO
         vc.release();
@@ -74,7 +74,7 @@ public:
 #endif
     }
 
-    virtual Mat nextFrame() CV_OVERRIDE
+    virtual Mat nextFrame()
     {
         Mat frame;
 #ifdef HAVE_OPENCV_VIDEOIO

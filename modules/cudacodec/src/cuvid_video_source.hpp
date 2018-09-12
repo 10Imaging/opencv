@@ -62,11 +62,11 @@ public:
     explicit CuvidVideoSource(const String& fname);
     ~CuvidVideoSource();
 
-    FormatInfo format() const CV_OVERRIDE;
-    void start() CV_OVERRIDE;
-    void stop() CV_OVERRIDE;
-    bool isStarted() const CV_OVERRIDE;
-    bool hasError() const CV_OVERRIDE;
+    FormatInfo format() const;
+    void start();
+    void stop();
+    bool isStarted() const;
+    bool hasError() const;
 
 private:
     // Callback for handling packages of demuxed video data.

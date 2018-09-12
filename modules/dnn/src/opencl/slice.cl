@@ -40,9 +40,9 @@
 //
 //M*/
 
-#if defined(cl_khr_fp16)
-#pragma OPENCL EXTENSION cl_khr_fp16 : enable
-#endif
+#define Dtype float
+#define Dtype4 float4
+#define Dtype8 float8
 
 __kernel void slice(__global const Dtype* src,
                     const int src_plane_size,

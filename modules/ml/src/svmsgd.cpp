@@ -57,7 +57,7 @@ namespace cv
 namespace ml
 {
 
-class SVMSGDImpl CV_FINAL : public SVMSGD
+class SVMSGDImpl : public SVMSGD
 {
 
 public:
@@ -65,42 +65,36 @@ public:
 
     virtual ~SVMSGDImpl() {}
 
-    virtual bool train(const Ptr<TrainData>& data, int) CV_OVERRIDE;
+    virtual bool train(const Ptr<TrainData>& data, int);
 
-    virtual float predict( InputArray samples, OutputArray results=noArray(), int flags = 0 ) const CV_OVERRIDE;
+    virtual float predict( InputArray samples, OutputArray results=noArray(), int flags = 0 ) const;
 
-    virtual bool isClassifier() const CV_OVERRIDE;
+    virtual bool isClassifier() const;
 
-    virtual bool isTrained() const CV_OVERRIDE;
+    virtual bool isTrained() const;
 
-    virtual void clear() CV_OVERRIDE;
+    virtual void clear();
 
-    virtual void write(FileStorage &fs) const CV_OVERRIDE;
+    virtual void write(FileStorage &fs) const;
 
-    virtual void read(const FileNode &fn) CV_OVERRIDE;
+    virtual void read(const FileNode &fn);
 
-    virtual Mat getWeights() CV_OVERRIDE { return weights_; }
+    virtual Mat getWeights(){ return weights_; }
 
-    virtual float getShift() CV_OVERRIDE { return shift_; }
+    virtual float getShift(){ return shift_; }
 
-    virtual int getVarCount() const CV_OVERRIDE { return weights_.cols; }
+    virtual int getVarCount() const { return weights_.cols; }
 
-    virtual String getDefaultName() const CV_OVERRIDE {return "opencv_ml_svmsgd";}
+    virtual String getDefaultName() const {return "opencv_ml_svmsgd";}
 
-    virtual void setOptimalParameters(int svmsgdType = ASGD, int marginType = SOFT_MARGIN) CV_OVERRIDE;
+    virtual void setOptimalParameters(int svmsgdType = ASGD, int marginType = SOFT_MARGIN);
 
-    inline int getSvmsgdType() const CV_OVERRIDE { return params.svmsgdType; }
-    inline void setSvmsgdType(int val) CV_OVERRIDE { params.svmsgdType = val; }
-    inline int getMarginType() const CV_OVERRIDE { return params.marginType; }
-    inline void setMarginType(int val) CV_OVERRIDE { params.marginType = val; }
-    inline float getMarginRegularization() const CV_OVERRIDE { return params.marginRegularization; }
-    inline void setMarginRegularization(float val) CV_OVERRIDE { params.marginRegularization = val; }
-    inline float getInitialStepSize() const CV_OVERRIDE { return params.initialStepSize; }
-    inline void setInitialStepSize(float val) CV_OVERRIDE { params.initialStepSize = val; }
-    inline float getStepDecreasingPower() const CV_OVERRIDE { return params.stepDecreasingPower; }
-    inline void setStepDecreasingPower(float val) CV_OVERRIDE { params.stepDecreasingPower = val; }
-    inline cv::TermCriteria getTermCriteria() const CV_OVERRIDE { return params.termCrit; }
-    inline void setTermCriteria(const cv::TermCriteria& val) CV_OVERRIDE { params.termCrit = val; }
+    CV_IMPL_PROPERTY(int, SvmsgdType, params.svmsgdType)
+    CV_IMPL_PROPERTY(int, MarginType, params.marginType)
+    CV_IMPL_PROPERTY(float, MarginRegularization, params.marginRegularization)
+    CV_IMPL_PROPERTY(float, InitialStepSize, params.initialStepSize)
+    CV_IMPL_PROPERTY(float, StepDecreasingPower, params.stepDecreasingPower)
+    CV_IMPL_PROPERTY_S(cv::TermCriteria, TermCriteria, params.termCrit)
 
 private:
     void updateWeights(InputArray sample, bool positive, float stepSize, Mat &weights);

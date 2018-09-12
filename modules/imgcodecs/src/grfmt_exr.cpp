@@ -199,7 +199,7 @@ bool  ExrDecoder::readData( Mat& img )
     if( !justcopy )
     {
         copy_buffer.allocate(sizeof(float) * m_width * 3);
-        buffer = copy_buffer.data();
+        buffer = copy_buffer;
         ystep = 0;
     }
     else

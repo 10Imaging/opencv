@@ -58,18 +58,18 @@ enum BmpCompression
 
 
 // Windows Bitmap reader
-class BmpDecoder CV_FINAL : public BaseImageDecoder
+class BmpDecoder : public BaseImageDecoder
 {
 public:
 
     BmpDecoder();
-    ~BmpDecoder() CV_OVERRIDE;
+    ~BmpDecoder();
 
-    bool  readData( Mat& img ) CV_OVERRIDE;
-    bool  readHeader() CV_OVERRIDE;
+    bool  readData( Mat& img );
+    bool  readHeader();
     void  close();
 
-    ImageDecoder newDecoder() const CV_OVERRIDE;
+    ImageDecoder newDecoder() const;
 
 protected:
 
@@ -83,15 +83,15 @@ protected:
 
 
 // ... writer
-class BmpEncoder CV_FINAL : public BaseImageEncoder
+class BmpEncoder : public BaseImageEncoder
 {
 public:
     BmpEncoder();
-    ~BmpEncoder() CV_OVERRIDE;
+    ~BmpEncoder();
 
-    bool  write( const Mat& img, const std::vector<int>& params ) CV_OVERRIDE;
+    bool  write( const Mat& img, const std::vector<int>& params );
 
-    ImageEncoder newEncoder() const CV_OVERRIDE;
+    ImageEncoder newEncoder() const;
 };
 
 }

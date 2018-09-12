@@ -44,7 +44,6 @@
 #include "../precomp.hpp"
 
 #include <iostream>
-#include <fstream>
 #include <algorithm>
 #include <vector>
 #include <map>
@@ -67,19 +66,14 @@ public:
 
     DarknetImporter() {}
 
-    DarknetImporter(std::istream &cfgStream, std::istream &darknetModelStream)
+    DarknetImporter(const char *cfgFile, const char *darknetModel)
     {
         CV_TRACE_FUNCTION();
 
-        ReadNetParamsFromCfgStreamOrDie(cfgStream, &net);
-        ReadNetParamsFromBinaryStreamOrDie(darknetModelStream, &net);
-    }
+        ReadNetParamsFromCfgFileOrDie(cfgFile, &net);
 
-    DarknetImporter(std::istream &cfgStream)
-    {
-        CV_TRACE_FUNCTION();
-
-        ReadNetParamsFromCfgStreamOrDie(cfgStream, &net);
+        if (darknetModel && darknetModel[0])
+            ReadNetParamsFromBinaryFileOrDie(darknetModel, &net);
     }
 
     struct BlobNote
@@ -181,74 +175,14 @@ public:
     }
 };
 
-static Net readNetFromDarknet(std::istream &cfgFile, std::istream &darknetModel)
-{
-    Net net;
-    DarknetImporter darknetImporter(cfgFile, darknetModel);
-    darknetImporter.populateNet(net);
-    return net;
-}
-
-static Net readNetFromDarknet(std::istream &cfgFile)
-{
-    Net net;
-    DarknetImporter darknetImporter(cfgFile);
-    darknetImporter.populateNet(net);
-    return net;
-}
-
 }
 
 Net readNetFromDarknet(const String &cfgFile, const String &darknetModel /*= String()*/)
 {
-    std::ifstream cfgStream(cfgFile.c_str());
-    if (!cfgStream.is_open())
-    {
-        CV_Error(cv::Error::StsParseError, "Failed to parse NetParameter file: " + std::string(cfgFile));
-    }
-    if (darknetModel != String())
-    {
-        std::ifstream darknetModelStream(darknetModel.c_str(), std::ios::binary);
-        if (!darknetModelStream.is_open())
-        {
-            CV_Error(cv::Error::StsParseError, "Failed to parse NetParameter file: " + std::string(darknetModel));
-        }
-        return readNetFromDarknet(cfgStream, darknetModelStream);
-    }
-    else
-        return readNetFromDarknet(cfgStream);
-}
-
-struct BufferStream : public std::streambuf
-{
-    BufferStream(const char* s, std::size_t n)
-    {
-        char* ptr = const_cast<char*>(s);
-        setg(ptr, ptr, ptr + n);
-    }
-};
-
-Net readNetFromDarknet(const char *bufferCfg, size_t lenCfg, const char *bufferModel, size_t lenModel)
-{
-    BufferStream cfgBufferStream(bufferCfg, lenCfg);
-    std::istream cfgStream(&cfgBufferStream);
-    if (lenModel)
-    {
-        BufferStream weightsBufferStream(bufferModel, lenModel);
-        std::istream weightsStream(&weightsBufferStream);
-        return readNetFromDarknet(cfgStream, weightsStream);
-    }
-    else
-        return readNetFromDarknet(cfgStream);
-}
-
-Net readNetFromDarknet(const std::vector<uchar>& bufferCfg, const std::vector<uchar>& bufferModel)
-{
-    const char* bufferCfgPtr = reinterpret_cast<const char*>(&bufferCfg[0]);
-    const char* bufferModelPtr = bufferModel.empty() ? NULL :
-                                 reinterpret_cast<const char*>(&bufferModel[0]);
-    return readNetFromDarknet(bufferCfgPtr, bufferCfg.size(),
-                              bufferModelPtr, bufferModel.size());
+    DarknetImporter darknetImporter(cfgFile.c_str(), darknetModel.c_str());
+    Net net;
+    darknetImporter.populateNet(net);
+    return net;
 }
 
 CV__DNN_EXPERIMENTAL_NS_END

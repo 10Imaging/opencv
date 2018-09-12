@@ -12,71 +12,77 @@
 using namespace cv;
 using namespace std;
 
+/// Global variables
+const char* source_window = "Source image";
+const char* warp_window = "Warp";
+const char* warp_rotate_window = "Warp + Rotate";
+
 /**
  * @function main
  */
 int main( int argc, char** argv )
 {
-    //! [Load the image]
-    CommandLineParser parser( argc, argv, "{@input | ../data/lena.jpg | input image}" );
-    Mat src = imread( parser.get<String>( "@input" ) );
-    if( src.empty() )
-    {
-        cout << "Could not open or find the image!\n" << endl;
-        cout << "Usage: " << argv[0] << " <Input image>" << endl;
-        return -1;
-    }
-    //! [Load the image]
+  Point2f srcTri[3];
+  Point2f dstTri[3];
 
-    //! [Set your 3 points to calculate the  Affine Transform]
-    Point2f srcTri[3];
-    srcTri[0] = Point2f( 0.f, 0.f );
-    srcTri[1] = Point2f( src.cols - 1.f, 0.f );
-    srcTri[2] = Point2f( 0.f, src.rows - 1.f );
+  Mat rot_mat( 2, 3, CV_32FC1 );
+  Mat warp_mat( 2, 3, CV_32FC1 );
+  Mat src, warp_dst, warp_rotate_dst;
 
-    Point2f dstTri[3];
-    dstTri[0] = Point2f( 0.f, src.rows*0.33f );
-    dstTri[1] = Point2f( src.cols*0.85f, src.rows*0.25f );
-    dstTri[2] = Point2f( src.cols*0.15f, src.rows*0.7f );
-    //! [Set your 3 points to calculate the  Affine Transform]
+  /// Load the image
+  CommandLineParser parser( argc, argv, "{@input | ../data/lena.jpg | input image}" );
+  src = imread( parser.get<String>( "@input" ), IMREAD_COLOR );
+  if( src.empty() )
+  {
+      cout << "Could not open or find the image!\n" << endl;
+      cout << "Usage: " << argv[0] << " <Input image>" << endl;
+      return -1;
+  }
 
-    //! [Get the Affine Transform]
-    Mat warp_mat = getAffineTransform( srcTri, dstTri );
-    //! [Get the Affine Transform]
+  /// Set the dst image the same type and size as src
+  warp_dst = Mat::zeros( src.rows, src.cols, src.type() );
 
-    //! [Apply the Affine Transform just found to the src image]
-    /// Set the dst image the same type and size as src
-    Mat warp_dst = Mat::zeros( src.rows, src.cols, src.type() );
+  /// Set your 3 points to calculate the  Affine Transform
+  srcTri[0] = Point2f( 0,0 );
+  srcTri[1] = Point2f( src.cols - 1.f, 0 );
+  srcTri[2] = Point2f( 0, src.rows - 1.f );
 
-    warpAffine( src, warp_dst, warp_mat, warp_dst.size() );
-    //! [Apply the Affine Transform just found to the src image]
+  dstTri[0] = Point2f( src.cols*0.0f, src.rows*0.33f );
+  dstTri[1] = Point2f( src.cols*0.85f, src.rows*0.25f );
+  dstTri[2] = Point2f( src.cols*0.15f, src.rows*0.7f );
 
-    /** Rotating the image after Warp */
+  /// Get the Affine Transform
+  warp_mat = getAffineTransform( srcTri, dstTri );
 
-    //! [Compute a rotation matrix with respect to the center of the image]
-    Point center = Point( warp_dst.cols/2, warp_dst.rows/2 );
-    double angle = -50.0;
-    double scale = 0.6;
-    //! [Compute a rotation matrix with respect to the center of the image]
+  /// Apply the Affine Transform just found to the src image
+  warpAffine( src, warp_dst, warp_mat, warp_dst.size() );
 
-    //! [Get the rotation matrix with the specifications above]
-    Mat rot_mat = getRotationMatrix2D( center, angle, scale );
-    //! [Get the rotation matrix with the specifications above]
+  /** Rotating the image after Warp */
 
-    //! [Rotate the warped image]
-    Mat warp_rotate_dst;
-    warpAffine( warp_dst, warp_rotate_dst, rot_mat, warp_dst.size() );
-    //! [Rotate the warped image]
+  /// Compute a rotation matrix with respect to the center of the image
+  Point center = Point( warp_dst.cols/2, warp_dst.rows/2 );
+  double angle = -50.0;
+  double scale = 0.6;
 
-    //! [Show what you got]
-    imshow( "Source image", src );
-    imshow( "Warp", warp_dst );
-    imshow( "Warp + Rotate", warp_rotate_dst );
-    //! [Show what you got]
+  /// Get the rotation matrix with the specifications above
+  rot_mat = getRotationMatrix2D( center, angle, scale );
 
-    //! [Wait until user exits the program]
-    waitKey();
-    //! [Wait until user exits the program]
+  /// Rotate the warped image
+  warpAffine( warp_dst, warp_rotate_dst, rot_mat, warp_dst.size() );
 
-    return 0;
+
+  /// Show what you got
+  namedWindow( source_window, WINDOW_AUTOSIZE );
+  imshow( source_window, src );
+
+  namedWindow( warp_window, WINDOW_AUTOSIZE );
+  imshow( warp_window, warp_dst );
+
+  namedWindow( warp_rotate_window, WINDOW_AUTOSIZE );
+  imshow( warp_rotate_window, warp_rotate_dst );
+
+  /// Wait until user exits the program
+  waitKey(0);
+
+  return 0;
 }

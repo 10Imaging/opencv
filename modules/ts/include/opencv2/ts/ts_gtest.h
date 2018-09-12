@@ -9013,7 +9013,7 @@ class NativeArray {
 
 // Implements Boolean test assertions such as EXPECT_TRUE. expression can be
 // either a boolean expression or an AssertionResult. text is a textual
-// representation of expression as it was passed into the EXPECT_TRUE.
+// represenation of expression as it was passed into the EXPECT_TRUE.
 #define GTEST_TEST_BOOLEAN_(expression, text, actual, expected, fail) \
   GTEST_AMBIGUOUS_ELSE_BLOCKER_ \
   if (const ::testing::AssertionResult gtest_ar_ = \
@@ -11539,15 +11539,12 @@ typename ParamNameGenFunc<ParamType>::Type *GetParamNameGen() {
   return DefaultParamName;
 }
 
-} // namespace internal::  // fixes MacOS X issue with "friend class internal/*::anon*/::ParameterizedTestFactory;"
-namespace { // wrap into anynomous namespace to avoid build warnings like GCC's -Wsubobject-linkage
-
 // INTERNAL IMPLEMENTATION - DO NOT USE IN USER CODE.
 //
 // Stores a parameter value and later creates tests parameterized with that
 // value.
 template <class TestClass>
-class ParameterizedTestFactory : public internal::TestFactoryBase {
+class ParameterizedTestFactory : public TestFactoryBase {
  public:
   typedef typename TestClass::ParamType ParamType;
   explicit ParameterizedTestFactory(ParamType parameter) :
@@ -11562,8 +11559,6 @@ class ParameterizedTestFactory : public internal::TestFactoryBase {
 
   GTEST_DISALLOW_COPY_AND_ASSIGN_(ParameterizedTestFactory);
 };
-} // namespace
-namespace internal {
 
 // INTERNAL IMPLEMENTATION - DO NOT USE IN USER CODE.
 //
@@ -20410,12 +20405,6 @@ class GTEST_API_ AssertHelper {
 }  // namespace internal
 
 #if GTEST_HAS_PARAM_TEST
-
-namespace internal {
-// Static value used for accessing test parameter during a test lifetime.
-extern void* g_parameter_;
-} // namespace internal
-
 // The pure interface class that all value-parameterized tests inherit from.
 // A value-parameterized class must inherit from both ::testing::Test and
 // ::testing::WithParamInterface. In most cases that just means inheriting
@@ -20462,27 +20451,28 @@ class WithParamInterface {
   // like writing 'WithParamInterface<bool>::GetParam()' for a test that
   // uses a fixture whose parameter type is int.
   const ParamType& GetParam() const {
-    GTEST_CHECK_(GetParameterPtrRef_() != NULL)
+    GTEST_CHECK_(parameter_ != NULL)
         << "GetParam() can only be called inside a value-parameterized test "
         << "-- did you intend to write TEST_P instead of TEST_F?";
-    return *GetParameterPtrRef_();
+    return *parameter_;
   }
 
  private:
   // Sets parameter value. The caller is responsible for making sure the value
   // remains alive and unchanged throughout the current test.
   static void SetParam(const ParamType* parameter) {
-      GetParameterPtrRef_() = parameter;
+    parameter_ = parameter;
   }
 
-  static const ParamType*& GetParameterPtrRef_()
-  {
-      return (const ParamType*&)internal::g_parameter_;
-  }
+  // Static value used for accessing parameter during a test lifetime.
+  static const ParamType* parameter_;
 
   // TestClass must be a subclass of WithParamInterface<T> and Test.
-  template <class TestClass> friend class /*internal::*/ParameterizedTestFactory;
+  template <class TestClass> friend class internal::ParameterizedTestFactory;
 };
+
+template <typename T>
+const T* WithParamInterface<T>::parameter_ = NULL;
 
 // Most value-parameterized classes can ignore the existence of
 // WithParamInterface, and can just inherit from ::testing::TestWithParam.

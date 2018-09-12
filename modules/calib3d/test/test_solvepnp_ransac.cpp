@@ -382,7 +382,6 @@ TEST(Calib3d_SolvePnPRansac, concurrency)
     Mat rvec1, rvec2;
     Mat tvec1, tvec2;
 
-    int threads = getNumThreads();
     {
         // limit concurrency to get deterministic result
         theRNG().state = 20121010;
@@ -391,7 +390,6 @@ TEST(Calib3d_SolvePnPRansac, concurrency)
     }
 
     {
-        setNumThreads(threads);
         Mat rvec;
         Mat tvec;
         // parallel executions

@@ -178,12 +178,6 @@ void FileStorage::writeObj( const String& name, const void* obj )
     cvWrite( fs, name.size() > 0 ? name.c_str() : 0, obj );
 }
 
-
-void FileStorage::write( const String& name, int val )
-{
-    *this << name << val;
-}
-
 void FileStorage::write( const String& name, double val )
 {
     *this << name << val;
@@ -222,7 +216,7 @@ String FileStorage::getDefaultObjectName(const String& _filename)
     if( ptr == ptr2 )
         CV_Error( CV_StsBadArg, "Invalid filename" );
 
-    char* name = name_buf.data();
+    char* name = name_buf;
 
     // name must start with letter or '_'
     if( !cv_isalpha(*ptr) && *ptr!= '_' ){
@@ -237,7 +231,7 @@ String FileStorage::getDefaultObjectName(const String& _filename)
         *name++ = c;
     }
     *name = '\0';
-    name = name_buf.data();
+    name = name_buf;
     if( strcmp( name, "_" ) == 0 )
         strcpy( name, stubname );
     return String(name);

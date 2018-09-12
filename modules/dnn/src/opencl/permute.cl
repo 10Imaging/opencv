@@ -40,9 +40,7 @@
 //
 //M*/
 
-#if defined(cl_khr_fp16)
-#pragma OPENCL EXTENSION cl_khr_fp16 : enable
-#endif
+#define Dtype float
 
 __kernel void permute(const int nthreads,
                       __global Dtype* bottom_data,

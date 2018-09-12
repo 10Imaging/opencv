@@ -63,19 +63,19 @@ using namespace Imath;
 
 /* libpng version only */
 
-class ExrDecoder CV_FINAL : public BaseImageDecoder
+class ExrDecoder : public BaseImageDecoder
 {
 public:
 
     ExrDecoder();
-    ~ExrDecoder() CV_OVERRIDE;
+    ~ExrDecoder();
 
-    int   type() const CV_OVERRIDE;
-    bool  readData( Mat& img ) CV_OVERRIDE;
-    bool  readHeader() CV_OVERRIDE;
+    int   type() const;
+    bool  readData( Mat& img );
+    bool  readHeader();
     void  close();
 
-    ImageDecoder newDecoder() const CV_OVERRIDE;
+    ImageDecoder newDecoder() const;
 
 protected:
     void  UpSample( uchar *data, int xstep, int ystep, int xsample, int ysample );
@@ -103,15 +103,15 @@ private:
 };
 
 
-class ExrEncoder CV_FINAL : public BaseImageEncoder
+class ExrEncoder : public BaseImageEncoder
 {
 public:
     ExrEncoder();
-    ~ExrEncoder() CV_OVERRIDE;
+    ~ExrEncoder();
 
-    bool  isFormatSupported( int depth ) const CV_OVERRIDE;
-    bool  write( const Mat& img, const std::vector<int>& params ) CV_OVERRIDE;
-    ImageEncoder newEncoder() const CV_OVERRIDE;
+    bool  isFormatSupported( int depth ) const;
+    bool  write( const Mat& img, const std::vector<int>& params );
+    ImageEncoder newEncoder() const;
 };
 
 }

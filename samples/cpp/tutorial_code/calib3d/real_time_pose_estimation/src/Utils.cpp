@@ -179,16 +179,13 @@ double get_translation_error(const cv::Mat &t_true, const cv::Mat &t)
 double get_rotation_error(const cv::Mat &R_true, const cv::Mat &R)
 {
   cv::Mat error_vec, error_mat;
-  error_mat = -R_true * R.t();
+  error_mat = R_true * cv::Mat(R.inv()).mul(-1);
   cv::Rodrigues(error_mat, error_vec);
 
   return cv::norm(error_vec);
 }
 
 // Converts a given Rotation Matrix to Euler angles
-// Convention used is Y-Z-X Tait-Bryan angles
-// Reference code implementation:
-// https://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToEuler/index.htm
 cv::Mat rot2euler(const cv::Mat & rotationMatrix)
 {
   cv::Mat euler(3,1,CV_64F);
@@ -201,52 +198,49 @@ cv::Mat rot2euler(const cv::Mat & rotationMatrix)
   double m20 = rotationMatrix.at<double>(2,0);
   double m22 = rotationMatrix.at<double>(2,2);
 
-  double bank, attitude, heading;
+  double x, y, z;
 
   // Assuming the angles are in radians.
   if (m10 > 0.998) { // singularity at north pole
-    bank = 0;
-    attitude = CV_PI/2;
-    heading = atan2(m02,m22);
+    x = 0;
+    y = CV_PI/2;
+    z = atan2(m02,m22);
   }
   else if (m10 < -0.998) { // singularity at south pole
-    bank = 0;
-    attitude = -CV_PI/2;
-    heading = atan2(m02,m22);
+    x = 0;
+    y = -CV_PI/2;
+    z = atan2(m02,m22);
   }
   else
   {
-    bank = atan2(-m12,m11);
-    attitude = asin(m10);
-    heading = atan2(-m20,m00);
+    x = atan2(-m12,m11);
+    y = asin(m10);
+    z = atan2(-m20,m00);
   }
 
-  euler.at<double>(0) = bank;
-  euler.at<double>(1) = attitude;
-  euler.at<double>(2) = heading;
+  euler.at<double>(0) = x;
+  euler.at<double>(1) = y;
+  euler.at<double>(2) = z;
 
   return euler;
 }
 
 // Converts a given Euler angles to Rotation Matrix
-// Convention used is Y-Z-X Tait-Bryan angles
-// Reference:
-// https://www.euclideanspace.com/maths/geometry/rotations/conversions/eulerToMatrix/index.htm
 cv::Mat euler2rot(const cv::Mat & euler)
 {
   cv::Mat rotationMatrix(3,3,CV_64F);
 
-  double bank = euler.at<double>(0);
-  double attitude = euler.at<double>(1);
-  double heading = euler.at<double>(2);
+  double x = euler.at<double>(0);
+  double y = euler.at<double>(1);
+  double z = euler.at<double>(2);
 
   // Assuming the angles are in radians.
-  double ch = cos(heading);
-  double sh = sin(heading);
-  double ca = cos(attitude);
-  double sa = sin(attitude);
-  double cb = cos(bank);
-  double sb = sin(bank);
+  double ch = cos(z);
+  double sh = sin(z);
+  double ca = cos(y);
+  double sa = sin(y);
+  double cb = cos(x);
+  double sb = sin(x);
 
   double m00, m01, m02, m10, m11, m12, m20, m21, m22;
 

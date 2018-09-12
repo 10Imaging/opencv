@@ -1,4 +1,3 @@
-
 // The "Square Detector" program.
 // It loads several images sequentially and tries to find squares in
 // each image
@@ -9,18 +8,22 @@
 #include "opencv2/highgui.hpp"
 
 #include <iostream>
+#include <math.h>
+#include <string.h>
 
 using namespace cv;
 using namespace std;
 
-static void help(const char* programName)
+static void help()
 {
     cout <<
-    "\nA program using pyramid scaling, Canny, contours and contour simplification\n"
-    "to find squares in a list of images (pic1-6.png)\n"
+    "\nA program using pyramid scaling, Canny, contours, contour simpification and\n"
+    "memory storage (it's got it all folks) to find\n"
+    "squares in a list of images pic1-6.png\n"
     "Returns sequence of squares detected on the image.\n"
+    "the sequence is stored in the specified memory storage\n"
     "Call:\n"
-    "./" << programName << " [file_name (optional)]\n"
+    "./squares [file_name (optional)]\n"
     "Using OpenCV version " << CV_VERSION << "\n" << endl;
 }
 
@@ -41,6 +44,7 @@ static double angle( Point pt1, Point pt2, Point pt0 )
 }
 
 // returns sequence of squares detected on the image.
+// the sequence is stored in the specified memory storage
 static void findSquares( const Mat& image, vector<vector<Point> >& squares )
 {
     squares.clear();
@@ -89,7 +93,7 @@ static void findSquares( const Mat& image, vector<vector<Point> >& squares )
             {
                 // approximate contour with accuracy proportional
                 // to the contour perimeter
-                approxPolyDP(contours[i], approx, arcLength(contours[i], true)*0.02, true);
+                approxPolyDP(Mat(contours[i]), approx, arcLength(Mat(contours[i]), true)*0.02, true);
 
                 // square contours should have 4 vertices after approximation
                 // relatively large area (to filter out noisy contours)
@@ -98,8 +102,8 @@ static void findSquares( const Mat& image, vector<vector<Point> >& squares )
                 // area may be positive or negative - in accordance with the
                 // contour orientation
                 if( approx.size() == 4 &&
-                    fabs(contourArea(approx)) > 1000 &&
-                    isContourConvex(approx) )
+                    fabs(contourArea(Mat(approx))) > 1000 &&
+                    isContourConvex(Mat(approx)) )
                 {
                     double maxCosine = 0;
 
@@ -140,7 +144,7 @@ int main(int argc, char** argv)
 {
     static const char* names[] = { "../data/pic1.png", "../data/pic2.png", "../data/pic3.png",
         "../data/pic4.png", "../data/pic5.png", "../data/pic6.png", 0 };
-    help(argv[0]);
+    help();
 
     if( argc > 1)
     {
@@ -148,11 +152,12 @@ int main(int argc, char** argv)
      names[1] =  "0";
     }
 
+    namedWindow( wndname, 1 );
     vector<vector<Point> > squares;
 
     for( int i = 0; names[i] != 0; i++ )
     {
-        Mat image = imread(names[i], IMREAD_COLOR);
+        Mat image = imread(names[i], 1);
         if( image.empty() )
         {
             cout << "Couldn't load " << names[i] << endl;
@@ -162,7 +167,7 @@ int main(int argc, char** argv)
         findSquares(image, squares);
         drawSquares(image, squares);
 
-        int c = waitKey();
+        char c = (char)waitKey();
         if( c == 27 )
             break;
     }

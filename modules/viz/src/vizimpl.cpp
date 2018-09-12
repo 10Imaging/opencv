@@ -506,6 +506,7 @@ void cv::viz::Viz3d::VizImpl::setViewerPose(const Affine3d &pose)
     camera.SetViewUp(up_vec.val);
 
     renderer_->ResetCameraClippingRange();
+    renderer_->ResetCamera();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////

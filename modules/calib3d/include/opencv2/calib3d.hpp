@@ -118,7 +118,7 @@ v = f_y*y'' + c_y
 tangential distortion coefficients. \f$s_1\f$, \f$s_2\f$, \f$s_3\f$, and \f$s_4\f$, are the thin prism distortion
 coefficients. Higher-order coefficients are not considered in OpenCV.
 
-The next figure shows two common types of radial distortion: barrel distortion (typically \f$ k_1 > 0 \f$) and pincushion distortion (typically \f$ k_1 < 0 \f$).
+The next figure shows two common types of radial distortion: barrel distortion (typically \f$ k_1 > 0 \f$ and pincushion distortion (typically \f$ k_1 < 0 \f$).
 
 ![](pics/distortion_examples.png)
 
@@ -307,11 +307,11 @@ optimization procedures like calibrateCamera, stereoCalibrate, or solvePnP .
  */
 CV_EXPORTS_W void Rodrigues( InputArray src, OutputArray dst, OutputArray jacobian = noArray() );
 
-/** @example samples/cpp/tutorial_code/features2D/Homography/pose_from_homography.cpp
-An example program about pose estimation from coplanar points
+/** @example pose_from_homography.cpp
+  An example program about pose estimation from coplanar points
 
-Check @ref tutorial_homography "the corresponding tutorial" for more details
-*/
+  Check @ref tutorial_homography "the corresponding tutorial" for more details
+ */
 
 /** @brief Finds a perspective transformation between two planes.
 
@@ -526,11 +526,11 @@ CV_EXPORTS_W void projectPoints( InputArray objectPoints,
                                  OutputArray jacobian = noArray(),
                                  double aspectRatio = 0 );
 
-/** @example samples/cpp/tutorial_code/features2D/Homography/homography_from_camera_displacement.cpp
-An example program about homography from the camera displacement
+/** @example homography_from_camera_displacement.cpp
+  An example program about homography from the camera displacement
 
-Check @ref tutorial_homography "the corresponding tutorial" for more details
-*/
+  Check @ref tutorial_homography "the corresponding tutorial" for more details
+ */
 
 /** @brief Finds an object pose from 3D-2D point correspondences.
 
@@ -1966,11 +1966,11 @@ CV_EXPORTS_W cv::Mat estimateAffinePartial2D(InputArray from, InputArray to, Out
                                   size_t maxIters = 2000, double confidence = 0.99,
                                   size_t refineIters = 10);
 
-/** @example samples/cpp/tutorial_code/features2D/Homography/decompose_homography.cpp
-An example program with homography decomposition.
+/** @example decompose_homography.cpp
+  An example program with homography decomposition.
 
-Check @ref tutorial_homography "the corresponding tutorial" for more details.
-*/
+  Check @ref tutorial_homography "the corresponding tutorial" for more details.
+ */
 
 /** @brief Decompose a homography matrix to rotation(s), translation(s) and plane normal(s).
 
@@ -1991,31 +1991,6 @@ CV_EXPORTS_W int decomposeHomographyMat(InputArray H,
                                         OutputArrayOfArrays rotations,
                                         OutputArrayOfArrays translations,
                                         OutputArrayOfArrays normals);
-
-/** @brief Filters homography decompositions based on additional information.
-
-@param rotations Vector of rotation matrices.
-@param normals Vector of plane normal matrices.
-@param beforePoints Vector of (rectified) visible reference points before the homography is applied
-@param afterPoints Vector of (rectified) visible reference points after the homography is applied
-@param possibleSolutions Vector of int indices representing the viable solution set after filtering
-@param pointsMask optional Mat/Vector of 8u type representing the mask for the inliers as given by the findHomography function
-
-This function is intended to filter the output of the decomposeHomographyMat based on additional
-information as described in @cite Malis . The summary of the method: the decomposeHomographyMat function
-returns 2 unique solutions and their "opposites" for a total of 4 solutions. If we have access to the
-sets of points visible in the camera frame before and after the homography transformation is applied,
-we can determine which are the true potential solutions and which are the opposites by verifying which
-homographies are consistent with all visible reference points being in front of the camera. The inputs
-are left unchanged; the filtered solution set is returned as indices into the existing one.
-
-*/
-CV_EXPORTS_W void filterHomographyDecompByVisibleRefpoints(InputArrayOfArrays rotations,
-                                                           InputArrayOfArrays normals,
-                                                           InputArray beforePoints,
-                                                           InputArray afterPoints,
-                                                           OutputArray possibleSolutions,
-                                                           InputArray pointsMask = noArray());
 
 /** @brief The base class for stereo correspondence algorithms.
  */

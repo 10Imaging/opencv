@@ -338,6 +338,7 @@ LineAA( Mat& img, Point2l pt1, Point2l pt2, const void* color )
 
     if( ax > ay )
     {
+        dx = ax;
         dy = (dy ^ j) - j;
         pt1.x ^= pt2.x & j;
         pt2.x ^= pt1.x & j;
@@ -361,6 +362,7 @@ LineAA( Mat& img, Point2l pt1, Point2l pt2, const void* color )
     }
     else
     {
+        dy = ay;
         dx = (dx ^ i) - i;
         pt1.x ^= pt2.x & i;
         pt2.x ^= pt1.x & i;
@@ -675,6 +677,7 @@ Line2( Mat& img, Point2l pt1, Point2l pt2, const void* color)
 
     if( ax > ay )
     {
+        dx = ax;
         dy = (dy ^ j) - j;
         pt1.x ^= pt2.x & j;
         pt2.x ^= pt1.x & j;
@@ -689,6 +692,7 @@ Line2( Mat& img, Point2l pt1, Point2l pt2, const void* color)
     }
     else
     {
+        dy = ay;
         dx = (dx ^ i) - i;
         pt1.x ^= pt2.x & i;
         pt2.x ^= pt1.x & i;
@@ -2394,8 +2398,8 @@ void cv::fillPoly(InputOutputArray _img, InputArrayOfArrays pts,
         return;
     AutoBuffer<Point*> _ptsptr(ncontours);
     AutoBuffer<int> _npts(ncontours);
-    Point** ptsptr = _ptsptr.data();
-    int* npts = _npts.data();
+    Point** ptsptr = _ptsptr;
+    int* npts = _npts;
 
     for( i = 0; i < ncontours; i++ )
     {
@@ -2422,8 +2426,8 @@ void cv::polylines(InputOutputArray _img, InputArrayOfArrays pts,
         return;
     AutoBuffer<Point*> _ptsptr(ncontours);
     AutoBuffer<int> _npts(ncontours);
-    Point** ptsptr = _ptsptr.data();
-    int* npts = _npts.data();
+    Point** ptsptr = _ptsptr;
+    int* npts = _npts;
 
     for( i = 0; i < ncontours; i++ )
     {
@@ -2559,11 +2563,6 @@ static const int CodeDeltas[8][2] =
 
 #define CV_ADJUST_EDGE_COUNT( count, seq )  \
     ((count) -= ((count) == (seq)->total && !CV_IS_SEQ_CLOSED(seq)))
-
-#if defined __GNUC__ && __GNUC__ >= 8
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
-#endif
 
 CV_IMPL void
 cvDrawContours( void* _img, CvSeq* contour,
@@ -2895,9 +2894,5 @@ cvGetTextSize( const char *text, const CvFont *_font, CvSize *_size, int *_base_
     if( _size )
         *_size = size;
 }
-
-#if defined __GNUC__ && __GNUC__ >= 8
-#pragma GCC diagnostic pop // "-Wclass-memaccess"
-#endif
 
 /* End of file. */

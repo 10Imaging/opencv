@@ -172,7 +172,7 @@ namespace
 
         // compute sizes
         AutoBuffer<int> buf(levels_ * 3);
-        int* cols_pyr = buf.data();
+        int* cols_pyr = buf;
         int* rows_pyr = cols_pyr + levels_;
         int* nr_plane_pyr = rows_pyr + levels_;
 

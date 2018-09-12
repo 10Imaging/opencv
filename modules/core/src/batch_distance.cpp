@@ -176,10 +176,10 @@ struct BatchDistInvoker : public ParallelLoopBody
         func = _func;
     }
 
-    void operator()(const Range& range) const CV_OVERRIDE
+    void operator()(const Range& range) const
     {
         AutoBuffer<int> buf(src2->rows);
-        int* bufptr = buf.data();
+        int* bufptr = buf;
 
         for( int i = range.start; i < range.end; i++ )
         {
@@ -263,7 +263,6 @@ void cv::batchDistance( InputArray _src1, InputArray _src2,
     if( crosscheck )
     {
         CV_Assert( K == 1 && update == 0 && mask.empty() );
-        CV_Assert(!nidx.empty());
         Mat tdist, tidx;
         batchDistance(src2, src1, tdist, dtype, tidx, normType, K, mask, 0, false);
 

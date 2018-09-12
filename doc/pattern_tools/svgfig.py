@@ -29,12 +29,6 @@ try:
 except NameError:
     unicode = lambda s: str(s)
 
-try:
-    xrange          # Python 2
-except NameError:
-    xrange = range  # Python 3
-
-
 if re.search("windows", platform.system(), re.I):
     try:
         import _winreg
@@ -606,7 +600,7 @@ def template(fileName, svg, replaceme="REPLACEME"):
 
 def load(fileName):
     """Loads an SVG image from a file."""
-    return load_stream(open(fileName))
+    return load_stream(file(fileName))
 
 def load_stream(stream):
     """Loads an SVG image from a stream (can be a string or a file object)."""

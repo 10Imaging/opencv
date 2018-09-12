@@ -75,7 +75,7 @@ public:
 
     virtual void stabilize(
             int size, const std::vector<Mat> &motions, std::pair<int,int> range,
-            Mat *stabilizationMotions) CV_OVERRIDE;
+            Mat *stabilizationMotions);
 
 private:
     std::vector<Ptr<IMotionStabilizer> > stabilizers_;
@@ -91,7 +91,7 @@ public:
 
     virtual void stabilize(
             int size, const std::vector<Mat> &motions, std::pair<int,int> range,
-            Mat *stabilizationMotions) CV_OVERRIDE;
+            Mat *stabilizationMotions);
 };
 
 class CV_EXPORTS GaussianMotionFilter : public MotionFilterBase
@@ -104,7 +104,7 @@ public:
     float stdev() const { return stdev_; }
 
     virtual Mat stabilize(
-            int idx, const std::vector<Mat> &motions, std::pair<int,int> range) CV_OVERRIDE;
+            int idx, const std::vector<Mat> &motions, std::pair<int,int> range);
 
 private:
     int radius_;
@@ -142,7 +142,7 @@ public:
 
     virtual void stabilize(
             int size, const std::vector<Mat> &motions, std::pair<int,int> range,
-            Mat *stabilizationMotions) CV_OVERRIDE;
+            Mat *stabilizationMotions);
 
 private:
     MotionModel model_;

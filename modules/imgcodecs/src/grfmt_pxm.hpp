@@ -46,8 +46,6 @@
 #include "grfmt_base.hpp"
 #include "bitstrm.hpp"
 
-#ifdef HAVE_IMGCODEC_PXM
-
 namespace cv
 {
 
@@ -59,20 +57,20 @@ enum PxMMode
     PXM_TYPE_PPM = 3  // color format
 };
 
-class PxMDecoder CV_FINAL : public BaseImageDecoder
+class PxMDecoder : public BaseImageDecoder
 {
 public:
 
     PxMDecoder();
-    virtual ~PxMDecoder() CV_OVERRIDE;
+    virtual ~PxMDecoder();
 
-    bool  readData( Mat& img ) CV_OVERRIDE;
-    bool  readHeader() CV_OVERRIDE;
+    bool  readData( Mat& img );
+    bool  readHeader();
     void  close();
 
-    size_t signatureLength() const CV_OVERRIDE;
-    bool checkSignature( const String& signature ) const CV_OVERRIDE;
-    ImageDecoder newDecoder() const CV_OVERRIDE;
+    size_t signatureLength() const;
+    bool checkSignature( const String& signature ) const;
+    ImageDecoder newDecoder() const;
 
 protected:
 
@@ -84,16 +82,16 @@ protected:
     int             m_maxval;
 };
 
-class PxMEncoder CV_FINAL : public BaseImageEncoder
+class PxMEncoder : public BaseImageEncoder
 {
 public:
     PxMEncoder(PxMMode mode);
-    virtual ~PxMEncoder() CV_OVERRIDE;
+    virtual ~PxMEncoder();
 
-    bool  isFormatSupported( int depth ) const CV_OVERRIDE;
-    bool  write( const Mat& img, const std::vector<int>& params ) CV_OVERRIDE;
+    bool  isFormatSupported( int depth ) const;
+    bool  write( const Mat& img, const std::vector<int>& params );
 
-    ImageEncoder newEncoder() const CV_OVERRIDE
+    ImageEncoder newEncoder() const
     {
         return makePtr<PxMEncoder>(mode_);
     }
@@ -102,7 +100,5 @@ public:
 };
 
 }
-
-#endif // HAVE_IMGCODEC_PXM
 
 #endif/*_GRFMT_PxM_H_*/

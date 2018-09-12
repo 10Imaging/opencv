@@ -2,7 +2,6 @@
 # usage:
 #     cat opencl11/cl.h | $0 cl_runtime_opencl11
 #     cat opencl12/cl.h | $0 cl_runtime_opencl12
-from __future__ import print_function
 import sys, re;
 
 from common import remove_comments, getTokens, getParameters, postProcessParameters
@@ -78,7 +77,7 @@ while True:
 
         name = parts[i]; i += 1;
         fn['name'] = name
-        print('name=' + name)
+        print 'name=' + name
 
         params = getParameters(i, parts)
 
@@ -89,7 +88,7 @@ while True:
 
 f.close()
 
-print('Found %d functions' % len(fns))
+print 'Found %d functions' % len(fns)
 
 postProcessParameters(fns)
 

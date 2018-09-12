@@ -64,7 +64,7 @@ static const float defaultDist2Threshold = 20.0f*20.0f;//threshold on distance f
 static const unsigned char defaultnShadowDetection2 = (unsigned char)127; // value to use in the segmentation mask for shadows, set 0 not to do shadow detection
 static const float defaultfTau = 0.5f; // Tau - shadow threshold, see the paper for explanation
 
-class BackgroundSubtractorKNNImpl CV_FINAL : public BackgroundSubtractorKNN
+class BackgroundSubtractorKNNImpl : public BackgroundSubtractorKNN
 {
 public:
     //! the default constructor
@@ -128,12 +128,12 @@ public:
 #endif
     }
     //! the destructor
-    ~BackgroundSubtractorKNNImpl() CV_OVERRIDE {}
+    ~BackgroundSubtractorKNNImpl() {}
     //! the update operator
-    void apply(InputArray image, OutputArray fgmask, double learningRate) CV_OVERRIDE;
+    void apply(InputArray image, OutputArray fgmask, double learningRate=-1);
 
     //! computes a background image which are the mean of all background gaussians
-    virtual void getBackgroundImage(OutputArray backgroundImage) const CV_OVERRIDE;
+    virtual void getBackgroundImage(OutputArray backgroundImage) const;
 
     //! re-initialization method
     void initialize(Size _frameSize, int _frameType)
@@ -214,20 +214,20 @@ public:
         }
     }
 
-    virtual int getHistory() const CV_OVERRIDE { return history; }
-    virtual void setHistory(int _nframes) CV_OVERRIDE { history = _nframes; }
+    virtual int getHistory() const { return history; }
+    virtual void setHistory(int _nframes) { history = _nframes; }
 
-    virtual int getNSamples() const CV_OVERRIDE { return nN; }
-    virtual void setNSamples(int _nN) CV_OVERRIDE { nN = _nN; }//needs reinitialization!
+    virtual int getNSamples() const { return nN; }
+    virtual void setNSamples(int _nN) { nN = _nN; }//needs reinitialization!
 
-    virtual int getkNNSamples() const CV_OVERRIDE { return nkNN; }
-    virtual void setkNNSamples(int _nkNN) CV_OVERRIDE { nkNN = _nkNN; }
+    virtual int getkNNSamples() const { return nkNN; }
+    virtual void setkNNSamples(int _nkNN) { nkNN = _nkNN; }
 
-    virtual double getDist2Threshold() const CV_OVERRIDE { return fTb; }
-    virtual void setDist2Threshold(double _dist2Threshold) CV_OVERRIDE { fTb = (float)_dist2Threshold; }
+    virtual double getDist2Threshold() const { return fTb; }
+    virtual void setDist2Threshold(double _dist2Threshold) { fTb = (float)_dist2Threshold; }
 
-    virtual bool getDetectShadows() const CV_OVERRIDE { return bShadowDetection; }
-    virtual void setDetectShadows(bool detectshadows) CV_OVERRIDE
+    virtual bool getDetectShadows() const { return bShadowDetection; }
+    virtual void setDetectShadows(bool detectshadows)
     {
         if ((bShadowDetection && detectshadows) || (!bShadowDetection && !detectshadows))
             return;
@@ -241,13 +241,13 @@ public:
 #endif
     }
 
-    virtual int getShadowValue() const CV_OVERRIDE { return nShadowDetection; }
-    virtual void setShadowValue(int value) CV_OVERRIDE { nShadowDetection = (uchar)value; }
+    virtual int getShadowValue() const { return nShadowDetection; }
+    virtual void setShadowValue(int value) { nShadowDetection = (uchar)value; }
 
-    virtual double getShadowThreshold() const CV_OVERRIDE { return fTau; }
-    virtual void setShadowThreshold(double value) CV_OVERRIDE { fTau = (float)value; }
+    virtual double getShadowThreshold() const { return fTau; }
+    virtual void setShadowThreshold(double value) { fTau = (float)value; }
 
-    virtual void write(FileStorage& fs) const CV_OVERRIDE
+    virtual void write(FileStorage& fs) const
     {
         writeFormat(fs);
         fs << "name" << name_
@@ -260,7 +260,7 @@ public:
         << "shadowThreshold" << fTau;
     }
 
-    virtual void read(const FileNode& fn) CV_OVERRIDE
+    virtual void read(const FileNode& fn)
     {
         CV_Assert( (String)fn["name"] == name_ );
         history = (int)fn["history"];
@@ -546,7 +546,7 @@ public:
         m_nShadowDetection = _nShadowDetection;
     }
 
-    void operator()(const Range& range) const CV_OVERRIDE
+    void operator()(const Range& range) const
     {
         int y0 = range.start, y1 = range.end;
         int ncols = src->cols, nchannels = src->channels();

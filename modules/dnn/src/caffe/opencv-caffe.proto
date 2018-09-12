@@ -50,7 +50,7 @@ syntax = "proto2";
 
 package opencv_caffe;
 
-// NVIDIA's Caffe feature is used to store fp16 weights, https://github.com/NVIDIA/caffe:
+// NVidia's Caffe feature is used to store fp16 weights, https://github.com/NVIDIA/caffe:
 // Math and storage types
 enum Type {
   DOUBLE = 0;
@@ -72,10 +72,10 @@ message BlobProto {
   repeated double double_data = 8 [packed = true];
   repeated double double_diff = 9 [packed = true];
 
-  // NVIDIA's Caffe fields begin.
+  // NVidia's Caffe fields begin.
   optional Type raw_data_type = 10;
   optional bytes raw_data = 12 [packed = false];
-  // NVIDIA's Caffe fields end.
+  // NVidia's Caffe fields end.
 
   // 4D dimensions -- deprecated.  Use "shape" instead.
   optional int32 num = 1 [default = 0];

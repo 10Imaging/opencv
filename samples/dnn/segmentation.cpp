@@ -7,13 +7,12 @@
 
 const char* keys =
     "{ help  h     | | Print help message. }"
-    "{ device      |  0 | camera device number. }"
-    "{ input i     | | Path to input image or video file. Skip this argument to capture frames from a camera. }"
+    "{ input i     | | Path to input image or video file. Skip this argument to capture frames from a camera.}"
     "{ model m     | | Path to a binary file of model contains trained weights. "
                       "It could be a file with extensions .caffemodel (Caffe), "
-                      ".pb (TensorFlow), .t7 or .net (Torch), .weights (Darknet). }"
+                      ".pb (TensorFlow), .t7 or .net (Torch), .weights (Darknet) }"
     "{ config c    | | Path to a text file of model contains network configuration. "
-                      "It could be a file with extensions .prototxt (Caffe), .pbtxt (TensorFlow), .cfg (Darknet). }"
+                      "It could be a file with extensions .prototxt (Caffe), .pbtxt (TensorFlow), .cfg (Darknet) }"
     "{ framework f | | Optional name of an origin framework of the model. Detect it automatically if it does not set. }"
     "{ classes     | | Optional path to a text file with names of classes. }"
     "{ colors      | | Optional path to a text file with colors for an every class. "
@@ -24,15 +23,12 @@ const char* keys =
     "{ height      |   | Preprocess input image by resizing to a specific height. }"
     "{ rgb         |   | Indicate that model works with RGB input images instead BGR ones. }"
     "{ backend     | 0 | Choose one of computation backends: "
-                        "0: automatically (by default), "
+                        "0: default C++ backend, "
                         "1: Halide language (http://halide-lang.org/), "
-                        "2: Intel's Deep Learning Inference Engine (https://software.intel.com/openvino-toolkit), "
-                        "3: OpenCV implementation }"
+                        "2: Intel's Deep Learning Inference Engine (https://software.seek.intel.com/deep-learning-deployment)}"
     "{ target      | 0 | Choose one of target computation devices: "
-                        "0: CPU target (by default), "
-                        "1: OpenCL, "
-                        "2: OpenCL fp16 (half-float precision), "
-                        "3: VPU }";
+                        "0: CPU target (by default),"
+                        "1: OpenCL }";
 
 using namespace cv;
 using namespace dnn;
@@ -57,6 +53,7 @@ int main(int argc, char** argv)
     float scale = parser.get<float>("scale");
     Scalar mean = parser.get<Scalar>("mean");
     bool swapRB = parser.get<bool>("rgb");
+    CV_Assert(parser.has("width"), parser.has("height"));
     int inpWidth = parser.get<int>("width");
     int inpHeight = parser.get<int>("height");
     String model = parser.get<String>("model");
@@ -98,13 +95,7 @@ int main(int argc, char** argv)
         }
     }
 
-    if (!parser.check())
-    {
-        parser.printErrors();
-        return 1;
-    }
-
-    CV_Assert(!model.empty());
+    CV_Assert(parser.has("model"));
     //! [Read and initialize network]
     Net net = readNet(model, config, framework);
     net.setPreferableBackend(backendId);
@@ -120,7 +111,7 @@ int main(int argc, char** argv)
     if (parser.has("input"))
         cap.open(parser.get<String>("input"));
     else
-        cap.open(parser.get<int>("device"));
+        cap.open(0);
     //! [Open a video file or an image file or a camera stream]
 
     // Process frames.

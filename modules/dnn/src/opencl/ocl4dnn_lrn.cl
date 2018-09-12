@@ -42,18 +42,14 @@
 
 #define CONCAT(A,B) A##_##B
 #define TEMPLATE(name,type) CONCAT(name,type)
-#define KERNEL_ARG_DTYPE float
-
-#if defined(cl_khr_fp16)
-#pragma OPENCL EXTENSION cl_khr_fp16 : enable
-#endif
+#define Dtype float
 
 __kernel void TEMPLATE(lrn_full_no_scale,Dtype)(const int nthreads, __global const Dtype* in,
                              const int num, const int channels,
                              const int height, const int width, const int size,
-                             const KERNEL_ARG_DTYPE alpha_over_size, const KERNEL_ARG_DTYPE k,
+                             const Dtype alpha_over_size, const Dtype k,
                              __global Dtype* const out,
-                             const KERNEL_ARG_DTYPE negative_beta) {
+                             const Dtype negative_beta) {
   for (int index = get_global_id(0); index < nthreads;
       index += get_global_size(0)) {
     // find out the local offset
@@ -64,11 +60,11 @@ __kernel void TEMPLATE(lrn_full_no_scale,Dtype)(const int nthreads, __global con
     const int step = height * width;
     __global const Dtype* in_off = in + offset;
     __global Dtype* out_off = out + offset;
-    KERNEL_ARG_DTYPE scale_val;
+    Dtype scale_val;
     int head = 0;
     const int pre_pad = (size - 1) / 2;
     const int post_pad = size - pre_pad - 1;
-    KERNEL_ARG_DTYPE accum_scale = 0;
+    Dtype accum_scale = 0;
     // fill the scale at [n, :, h, w]
     // accumulate values
     while (head < post_pad && head < channels) {
@@ -83,7 +79,7 @@ __kernel void TEMPLATE(lrn_full_no_scale,Dtype)(const int nthreads, __global con
             * in_off[(head - size) * step];
       }
       scale_val = k + accum_scale * alpha_over_size;
-      out_off[(head - post_pad) * step] = in_off[(head - post_pad) * step] * (Dtype)native_powr((Dtype)scale_val, (Dtype)negative_beta);
+      out_off[(head - post_pad) * step] = in_off[(head - post_pad) * step] * (Dtype)native_powr((float)scale_val, (float)negative_beta);
       ++head;
     }
     // subtract only
@@ -93,7 +89,7 @@ __kernel void TEMPLATE(lrn_full_no_scale,Dtype)(const int nthreads, __global con
             * in_off[(head - size) * step];
       }
       scale_val = k + accum_scale * alpha_over_size;
-      out_off[(head - post_pad) * step] = in_off[(head - post_pad) * step] * (Dtype)native_powr((Dtype)scale_val, (Dtype)negative_beta);
+      out_off[(head - post_pad) * step] = in_off[(head - post_pad) * step] * (Dtype)native_powr((float)scale_val, (float)negative_beta);
       ++head;
     }
   }

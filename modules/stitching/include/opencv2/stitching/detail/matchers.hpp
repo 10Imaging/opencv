@@ -130,26 +130,11 @@ public:
                        int num_octaves_descr = /*4*/3, int num_layers_descr = /*2*/4);
 
 private:
-    void find(InputArray image, ImageFeatures &features) CV_OVERRIDE;
+    void find(InputArray image, ImageFeatures &features);
 
     Ptr<FeatureDetector> detector_;
     Ptr<DescriptorExtractor> extractor_;
     Ptr<Feature2D> surf;
-};
-
-
-/** @brief SIFT features finder.
-
-@sa detail::FeaturesFinder, SIFT
-*/
-class CV_EXPORTS SiftFeaturesFinder : public FeaturesFinder
-{
-public:
-    SiftFeaturesFinder();
-
-private:
-    void find(InputArray image, ImageFeatures &features) CV_OVERRIDE;
-    Ptr<Feature2D> sift;
 };
 
 /** @brief ORB features finder. :
@@ -162,7 +147,7 @@ public:
     OrbFeaturesFinder(Size _grid_size = Size(3,1), int nfeatures=1500, float scaleFactor=1.3f, int nlevels=5);
 
 private:
-    void find(InputArray image, ImageFeatures &features) CV_OVERRIDE;
+    void find(InputArray image, ImageFeatures &features);
 
     Ptr<ORB> orb;
     Size grid_size;
@@ -184,7 +169,7 @@ public:
                         int diffusivity = KAZE::DIFF_PM_G2);
 
 private:
-    void find(InputArray image, ImageFeatures &features) CV_OVERRIDE;
+    void find(InputArray image, detail::ImageFeatures &features);
 
     Ptr<AKAZE> akaze;
 };
@@ -196,10 +181,10 @@ public:
     SurfFeaturesFinderGpu(double hess_thresh = 300., int num_octaves = 3, int num_layers = 4,
                           int num_octaves_descr = 4, int num_layers_descr = 2);
 
-    void collectGarbage() CV_OVERRIDE;
+    void collectGarbage();
 
 private:
-    void find(InputArray image, ImageFeatures &features) CV_OVERRIDE;
+    void find(InputArray image, ImageFeatures &features);
 
     cuda::GpuMat image_;
     cuda::GpuMat gray_image_;
@@ -303,10 +288,10 @@ public:
     BestOf2NearestMatcher(bool try_use_gpu = false, float match_conf = 0.3f, int num_matches_thresh1 = 6,
                           int num_matches_thresh2 = 6);
 
-    void collectGarbage() CV_OVERRIDE;
+    void collectGarbage();
 
 protected:
-    void match(const ImageFeatures &features1, const ImageFeatures &features2, MatchesInfo &matches_info) CV_OVERRIDE;
+    void match(const ImageFeatures &features1, const ImageFeatures &features2, MatchesInfo &matches_info);
 
     int num_matches_thresh1_;
     int num_matches_thresh2_;
@@ -357,7 +342,7 @@ public:
         full_affine_(full_affine) {}
 
 protected:
-    void match(const ImageFeatures &features1, const ImageFeatures &features2, MatchesInfo &matches_info) CV_OVERRIDE;
+    void match(const ImageFeatures &features1, const ImageFeatures &features2, MatchesInfo &matches_info);
 
     bool full_affine_;
 };

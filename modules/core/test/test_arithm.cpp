@@ -1918,25 +1918,6 @@ TEST(Normalize, regression_5876_inplace_change_type)
     EXPECT_EQ(0, cvtest::norm(m, result, NORM_INF));
 }
 
-TEST(Normalize, regression_6125)
-{
-    float initial_values[] = {
-        1888, 1692, 369, 263, 199,
-        280, 326, 129, 143, 126,
-        233, 221, 130, 126, 150,
-        249, 575, 574, 63, 12
-    };
-
-    Mat src(Size(20, 1), CV_32F, initial_values);
-    float min = 0., max = 400.;
-    normalize(src, src, 0, 400, NORM_MINMAX, CV_32F);
-    for(int i = 0; i < 20; i++)
-    {
-        EXPECT_GE(src.at<float>(i), min) << "Value should be >= 0";
-        EXPECT_LE(src.at<float>(i), max) << "Value should be <= 400";
-    }
-}
-
 TEST(MinMaxLoc, regression_4955_nans)
 {
     cv::Mat one_mat(2, 2, CV_32F, cv::Scalar(1));
@@ -1967,9 +1948,11 @@ TEST(Subtract, scalarc4_matc4)
 TEST(Compare, empty)
 {
     cv::Mat temp, dst1, dst2;
-    EXPECT_NO_THROW(cv::compare(temp, temp, dst1, cv::CMP_EQ));
+    cv::compare(temp, temp, dst1, cv::CMP_EQ);
+    dst2 = temp > 5;
+
     EXPECT_TRUE(dst1.empty());
-    EXPECT_THROW(dst2 = temp > 5, cv::Exception);
+    EXPECT_TRUE(dst2.empty());
 }
 
 TEST(Compare, regression_8999)
@@ -1977,7 +1960,9 @@ TEST(Compare, regression_8999)
     Mat_<double> A(4,1); A << 1, 3, 2, 4;
     Mat_<double> B(1,1); B << 2;
     Mat C;
-    EXPECT_THROW(cv::compare(A, B, C, CMP_LT), cv::Exception);
+    ASSERT_ANY_THROW({
+        cv::compare(A, B, C, CMP_LT);
+    });
 }
 
 
@@ -2052,136 +2037,6 @@ TEST(Core_minMaxIdx, regression_9207_2)
     EXPECT_EQ(14, minIdx[1]);
     EXPECT_EQ(0, maxIdx[0]);
     EXPECT_EQ(14, maxIdx[1]);
-}
-
-TEST(Core_Set, regression_11044)
-{
-    Mat testFloat(Size(3, 3), CV_32FC1);
-    Mat testDouble(Size(3, 3), CV_64FC1);
-
-    testFloat.setTo(1);
-    EXPECT_EQ(1, testFloat.at<float>(0,0));
-    testFloat.setTo(std::numeric_limits<float>::infinity());
-    EXPECT_EQ(std::numeric_limits<float>::infinity(), testFloat.at<float>(0, 0));
-    testFloat.setTo(1);
-    EXPECT_EQ(1, testFloat.at<float>(0, 0));
-    testFloat.setTo(std::numeric_limits<double>::infinity());
-    EXPECT_EQ(std::numeric_limits<float>::infinity(), testFloat.at<float>(0, 0));
-
-    testDouble.setTo(1);
-    EXPECT_EQ(1, testDouble.at<double>(0, 0));
-    testDouble.setTo(std::numeric_limits<float>::infinity());
-    EXPECT_EQ(std::numeric_limits<double>::infinity(), testDouble.at<double>(0, 0));
-    testDouble.setTo(1);
-    EXPECT_EQ(1, testDouble.at<double>(0, 0));
-    testDouble.setTo(std::numeric_limits<double>::infinity());
-    EXPECT_EQ(std::numeric_limits<double>::infinity(), testDouble.at<double>(0, 0));
-
-    Mat testMask(Size(3, 3), CV_8UC1, Scalar(1));
-
-    testFloat.setTo(1);
-    EXPECT_EQ(1, testFloat.at<float>(0, 0));
-    testFloat.setTo(std::numeric_limits<float>::infinity(), testMask);
-    EXPECT_EQ(std::numeric_limits<float>::infinity(), testFloat.at<float>(0, 0));
-    testFloat.setTo(1);
-    EXPECT_EQ(1, testFloat.at<float>(0, 0));
-    testFloat.setTo(std::numeric_limits<double>::infinity(), testMask);
-    EXPECT_EQ(std::numeric_limits<float>::infinity(), testFloat.at<float>(0, 0));
-
-
-    testDouble.setTo(1);
-    EXPECT_EQ(1, testDouble.at<double>(0, 0));
-    testDouble.setTo(std::numeric_limits<float>::infinity(), testMask);
-    EXPECT_EQ(std::numeric_limits<double>::infinity(), testDouble.at<double>(0, 0));
-    testDouble.setTo(1);
-    EXPECT_EQ(1, testDouble.at<double>(0, 0));
-    testDouble.setTo(std::numeric_limits<double>::infinity(), testMask);
-    EXPECT_EQ(std::numeric_limits<double>::infinity(), testDouble.at<double>(0, 0));
-}
-
-TEST(Core_Norm, IPP_regression_NORM_L1_16UC3_small)
-{
-    int cn = 3;
-    Size sz(9, 4);  // width < 16
-    Mat a(sz, CV_MAKE_TYPE(CV_16U, cn), Scalar::all(1));
-    Mat b(sz, CV_MAKE_TYPE(CV_16U, cn), Scalar::all(2));
-    uchar mask_[9*4] = {
- 255, 255, 255,   0, 255, 255,   0, 255,   0,
-   0, 255,   0,   0, 255, 255, 255, 255,   0,
-   0,   0,   0, 255,   0, 255,   0, 255, 255,
-   0,   0, 255,   0, 255, 255, 255,   0, 255
-};
-    Mat mask(sz, CV_8UC1, mask_);
-
-    EXPECT_EQ((double)9*4*cn, cv::norm(a, b, NORM_L1)); // without mask, IPP works well
-    EXPECT_EQ((double)20*cn, cv::norm(a, b, NORM_L1, mask));
-}
-
-
-TEST(Core_ConvertTo, regression_12121)
-{
-    {
-        Mat src(4, 64, CV_32SC1, Scalar(-1));
-        Mat dst;
-        src.convertTo(dst, CV_8U);
-        EXPECT_EQ(0, dst.at<uchar>(0, 0)) << "src=" << src.at<int>(0, 0);
-    }
-
-    {
-        Mat src(4, 64, CV_32SC1, Scalar(INT_MIN));
-        Mat dst;
-        src.convertTo(dst, CV_8U);
-        EXPECT_EQ(0, dst.at<uchar>(0, 0)) << "src=" << src.at<int>(0, 0);
-    }
-
-    {
-        Mat src(4, 64, CV_32SC1, Scalar(INT_MIN + 32767));
-        Mat dst;
-        src.convertTo(dst, CV_8U);
-        EXPECT_EQ(0, dst.at<uchar>(0, 0)) << "src=" << src.at<int>(0, 0);
-    }
-
-    {
-        Mat src(4, 64, CV_32SC1, Scalar(INT_MIN + 32768));
-        Mat dst;
-        src.convertTo(dst, CV_8U);
-        EXPECT_EQ(0, dst.at<uchar>(0, 0)) << "src=" << src.at<int>(0, 0);
-    }
-
-    {
-        Mat src(4, 64, CV_32SC1, Scalar(32768));
-        Mat dst;
-        src.convertTo(dst, CV_8U);
-        EXPECT_EQ(255, dst.at<uchar>(0, 0)) << "src=" << src.at<int>(0, 0);
-    }
-
-    {
-        Mat src(4, 64, CV_32SC1, Scalar(INT_MIN));
-        Mat dst;
-        src.convertTo(dst, CV_16U);
-        EXPECT_EQ(0, dst.at<ushort>(0, 0)) << "src=" << src.at<int>(0, 0);
-    }
-
-    {
-        Mat src(4, 64, CV_32SC1, Scalar(INT_MIN + 32767));
-        Mat dst;
-        src.convertTo(dst, CV_16U);
-        EXPECT_EQ(0, dst.at<ushort>(0, 0)) << "src=" << src.at<int>(0, 0);
-    }
-
-    {
-        Mat src(4, 64, CV_32SC1, Scalar(INT_MIN + 32768));
-        Mat dst;
-        src.convertTo(dst, CV_16U);
-        EXPECT_EQ(0, dst.at<ushort>(0, 0)) << "src=" << src.at<int>(0, 0);
-    }
-
-    {
-        Mat src(4, 64, CV_32SC1, Scalar(65536));
-        Mat dst;
-        src.convertTo(dst, CV_16U);
-        EXPECT_EQ(65535, dst.at<ushort>(0, 0)) << "src=" << src.at<int>(0, 0);
-    }
 }
 
 }} // namespace

@@ -63,13 +63,13 @@ public:
 class CV_EXPORTS NullLog : public ILog
 {
 public:
-    virtual void print(const char * /*format*/, ...) CV_OVERRIDE {}
+    virtual void print(const char * /*format*/, ...) {}
 };
 
 class CV_EXPORTS LogToStdout : public ILog
 {
 public:
-    virtual void print(const char *format, ...) CV_OVERRIDE;
+    virtual void print(const char *format, ...);
 };
 
 //! @}

@@ -14,16 +14,16 @@ endif()
 
 set(TEGRA_COMPILER_FLAGS "")
 
-if(CV_GCC OR CV_CLANG)
+if(CMAKE_COMPILER_IS_GNUCXX)
   # Generate unwind information even for functions that can't throw/propagate exceptions.
   # This lets debuggers and such get non-broken backtraces for such functions, even without debugging symbols.
   list(APPEND TEGRA_COMPILER_FLAGS -funwind-tables)
 endif()
 
-if(CV_GCC OR CV_CLANG)
+if(CMAKE_COMPILER_IS_GNUCXX)
   if(X86 OR ARMEABI_V6 OR (MIPS AND ANDROID_COMPILER_VERSION VERSION_LESS "4.6"))
     list(APPEND TEGRA_COMPILER_FLAGS -fweb -fwrapv -frename-registers -fsched-stalled-insns-dep=100 -fsched-stalled-insns=2)
-  elseif(CV_CLANG)
+  elseif(CMAKE_COMPILER_IS_CLANGCXX)
     list(APPEND TEGRA_COMPILER_FLAGS -fwrapv)
   else()
     list(APPEND TEGRA_COMPILER_FLAGS -fweb -fwrapv -frename-registers -fsched2-use-superblocks -fsched2-use-traces
@@ -40,7 +40,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${TEGRA_COMPILER_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TEGRA_COMPILER_FLAGS}")
 
 if(ARMEABI_V7A)
-  if(CV_GCC OR CV_CLANG)
+  if (CMAKE_COMPILER_IS_GNUCXX)
     set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-tree-vectorize" )
     set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-tree-vectorize" )
   endif()
@@ -83,7 +83,7 @@ include_directories("${CAROTENE_DIR}/include")
 get_target_property(carotene_defs carotene_objs INTERFACE_COMPILE_DEFINITIONS)
 set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS ${carotene_defs})
 
-  if(CV_GCC)
+  if (CMAKE_COMPILER_IS_GNUCXX)
     # allow more inlines - these parameters improve performance for:
     #   matchTemplate about 5-10%
     #   goodFeaturesToTrack 10-20%

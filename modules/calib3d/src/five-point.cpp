@@ -34,10 +34,10 @@
 namespace cv
 {
 
-class EMEstimatorCallback CV_FINAL : public PointSetRegistrator::Callback
+class EMEstimatorCallback : public PointSetRegistrator::Callback
 {
 public:
-    int runKernel( InputArray _m1, InputArray _m2, OutputArray _model ) const CV_OVERRIDE
+    int runKernel( InputArray _m1, InputArray _m2, OutputArray _model ) const
     {
         Mat q1 = _m1.getMat(), q2 = _m2.getMat();
         Mat Q1 = q1.reshape(1, (int)q1.total());
@@ -370,7 +370,7 @@ protected:
     }
 
 
-    void computeError( InputArray _m1, InputArray _m2, InputArray _model, OutputArray _err ) const CV_OVERRIDE
+    void computeError( InputArray _m1, InputArray _m2, InputArray _model, OutputArray _err ) const
     {
         Mat X1 = _m1.getMat(), X2 = _m2.getMat(), model = _model.getMat();
         const Point2d* x1ptr = X1.ptr<Point2d>();

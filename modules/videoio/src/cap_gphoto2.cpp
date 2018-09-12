@@ -65,7 +65,7 @@ public:
         result = gPhoto2Result;
         method = methodStr;
     }
-    virtual const char * what() const throw() CV_OVERRIDE
+    virtual const char * what() const throw ()
     {
         return gp_result_as_string(result);
     }
@@ -137,14 +137,14 @@ public:
     DigitalCameraCapture();
     DigitalCameraCapture(int index);
     DigitalCameraCapture(const String &deviceName);
-    virtual ~DigitalCameraCapture() CV_OVERRIDE;
+    virtual ~DigitalCameraCapture();
 
-    virtual bool isOpened() const CV_OVERRIDE;
-    virtual double getProperty(int) const CV_OVERRIDE;
-    virtual bool setProperty(int, double) CV_OVERRIDE;
-    virtual bool grabFrame() CV_OVERRIDE;
-    virtual bool retrieveFrame(int, OutputArray) CV_OVERRIDE;
-    virtual int getCaptureDomain() CV_OVERRIDE
+    virtual bool isOpened() const;
+    virtual double getProperty(int) const;
+    virtual bool setProperty(int, double);
+    virtual bool grabFrame();
+    virtual bool retrieveFrame(int, OutputArray);
+    virtual int getCaptureDomain()
     {
         return CV_CAP_GPHOTO2;
     } // Return the type of the capture object: CV_CAP_VFW, etc...

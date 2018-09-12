@@ -42,8 +42,8 @@
 
 #include "../precomp.hpp"
 #include "layers_common.hpp"
-#include "../op_halide.hpp"
-#include "../op_inf_engine.hpp"
+#include "op_halide.hpp"
+#include "op_inf_engine.hpp"
 
 #ifdef HAVE_OPENCL
 #include "opencl_kernels_dnn.hpp"
@@ -54,7 +54,7 @@ namespace cv
 namespace dnn
 {
 
-class ConcatLayerImpl CV_FINAL : public ConcatLayer
+class ConcatLayerImpl : public ConcatLayer
 {
 public:
     ConcatLayerImpl(const LayerParams& params)
@@ -67,7 +67,7 @@ public:
     virtual bool getMemoryShapes(const std::vector<MatShape> &inputs,
                                  const int requiredOutputs,
                                  std::vector<MatShape> &outputs,
-                                 std::vector<MatShape> &internals) const CV_OVERRIDE
+                                 std::vector<MatShape> &internals) const
     {
         CV_Assert(inputs.size() > 0);
         outputs.resize(1, inputs[0]);
@@ -101,9 +101,9 @@ public:
         return false;
     }
 
-    virtual bool supportBackend(int backendId) CV_OVERRIDE
+    virtual bool supportBackend(int backendId)
     {
-        return backendId == DNN_BACKEND_OPENCV ||
+        return backendId == DNN_BACKEND_DEFAULT ||
                backendId == DNN_BACKEND_HALIDE && haveHalide() && axis == 1 && !padding ||  // By channels
                backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine() && !padding;
     }
@@ -128,14 +128,14 @@ public:
             for( i = 0; i < ninputs; i++ )
             {
                 Mat& inp = *inputs[i];
-                CV_Assert( inp.isContinuous() && (inp.type() == CV_32F || inp.type() == CV_16S) &&
+                CV_Assert( inp.isContinuous() && inp.type() == CV_32F &&
                            inp.dims == 4 && inp.size[0] == output.size[0] &&
                            inp.size[2] == output.size[2] &&
                            inp.size[3] == output.size[3] );
                 nchannels += inp.size[1];
             }
             CV_Assert( nchannels == output.size[1] );
-            CV_Assert( output.isContinuous() && (output.type() == CV_32F || output.type() == CV_16S) );
+            CV_Assert( output.isContinuous() && output.type() == CV_32F );
 
             cc.chptrs.resize(nchannels*batchsz);
 
@@ -157,7 +157,7 @@ public:
 
         ChannelConcatInvoker()  : inputs(0), output(0), nstripes(0) {}
 
-        void operator()(const Range& r) const CV_OVERRIDE
+        void operator()(const Range& r) const
         {
             size_t planeSize = (size_t)output->size[2]*output->size[3];
             size_t nch = chptrs.size();
@@ -186,7 +186,6 @@ public:
         std::vector<UMat> inputs;
         std::vector<UMat> outputs;
 
-        bool use_half = (inps.depth() == CV_16S);
         inps.getUMatVector(inputs);
         outs.getUMatVector(outputs);
 
@@ -200,12 +199,11 @@ public:
         int num_concats = total(shape(inputs[0]), 0, cAxis);
         int offset_concat_axis = 0;
         UMat& outMat = outputs[0];
-        String buildopt = format(" -DDtype=%s", (use_half) ? "half" : "float");
-        String kname = format("concat_%s", use_half ? "half" : "float");
+        String buildopt = String("-DDtype=") + ocl::typeToStr(inputs[0].type()) + String(" ");
 
         for (size_t i = 0; i < inputs.size(); i++)
         {
-            ocl::Kernel kernel(kname.c_str(), ocl::dnn::concat_oclsrc, buildopt);
+            ocl::Kernel kernel("concat", ocl::dnn::concat_oclsrc, buildopt);
             if (kernel.empty())
                 return false;
 
@@ -232,19 +230,19 @@ public:
     }
 #endif
 
-    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE
+    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr)
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
 
-        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget) &&
+        CV_OCL_RUN((preferableTarget == DNN_TARGET_OPENCL) &&
                    OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
                    forward_ocl(inputs_arr, outputs_arr, internals_arr))
 
         Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
     }
 
-    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
+    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals)
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
@@ -280,7 +278,7 @@ public:
         }
     }
 
-    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &input) CV_OVERRIDE
+    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &input)
     {
 #ifdef HAVE_HALIDE
         std::vector<Halide::Buffer<> > inputBuffers = halideBuffers(input);
@@ -303,7 +301,7 @@ public:
         return Ptr<BackendNode>();
     }
 
-    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >& inputs) CV_OVERRIDE
+    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >& inputs)
     {
 #ifdef HAVE_INF_ENGINE
         InferenceEngine::DataPtr input = infEngineDataNode(inputs[0]);

@@ -32,8 +32,6 @@
 # pragma comment(lib, "glu32.lib")
 #endif
 
-using namespace cv;
-
 /*
 // Press key   to
 //       1     processing on CPU
@@ -66,7 +64,7 @@ public:
 
     ~GLWinApp() {}
 
-    virtual void cleanup() CV_OVERRIDE
+    virtual void cleanup()
     {
         m_shutdown = true;
 #if defined(__linux__)
@@ -77,7 +75,7 @@ public:
     }
 
 #if defined(_WIN32)
-    virtual LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) CV_OVERRIDE
+    virtual LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         switch (message)
         {
@@ -123,7 +121,7 @@ public:
 #endif
 
 #if defined(__linux__)
-    int handle_event(XEvent& e) CV_OVERRIDE
+    int handle_event(XEvent& e)
     {
         switch(e.type)
         {
@@ -169,7 +167,7 @@ public:
     }
 #endif
 
-    int init() CV_OVERRIDE
+    int init()
     {
 #if defined(_WIN32)
         m_hDC = GetDC(m_hWnd);
@@ -209,7 +207,7 @@ public:
         if (!m_cap.read(m_frame_bgr))
             return -1;
 
-        cv::cvtColor(m_frame_bgr, m_frame_rgba, COLOR_RGB2RGBA);
+        cv::cvtColor(m_frame_bgr, m_frame_rgba, CV_RGB2RGBA);
 
         if (do_buffer)
             buffer.copyFrom(m_frame_rgba, cv::ogl::Buffer::PIXEL_UNPACK_BUFFER, true);
@@ -260,12 +258,12 @@ public:
 #endif
     }
 
-    void idle() CV_OVERRIDE
+    void idle()
     {
         render();
     }
 
-    int render() CV_OVERRIDE
+    int render()
     {
         try
         {

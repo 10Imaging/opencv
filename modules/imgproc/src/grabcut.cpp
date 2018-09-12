@@ -174,7 +174,6 @@ void GMM::addSample( int ci, const Vec3d color )
 
 void GMM::endLearning()
 {
-    CV_Assert(totalSampleCount > 0);
     const double variance = 0.01;
     for( int ci = 0; ci < componentsCount; ci++ )
     {
@@ -558,10 +557,7 @@ void cv::grabCut( InputArray _img, InputOutputArray _mask, Rect rect,
     if( iterCount <= 0)
         return;
 
-    if( mode == GC_EVAL_FREEZE_MODEL )
-        iterCount = 1;
-
-    if( mode == GC_EVAL || mode == GC_EVAL_FREEZE_MODEL )
+    if( mode == GC_EVAL )
         checkMask( img, mask );
 
     const double gamma = 50;
@@ -575,8 +571,7 @@ void cv::grabCut( InputArray _img, InputOutputArray _mask, Rect rect,
     {
         GCGraph<double> graph;
         assignGMMsComponents( img, mask, bgdGMM, fgdGMM, compIdxs );
-        if( mode != GC_EVAL_FREEZE_MODEL )
-            learnGMMs( img, mask, compIdxs, bgdGMM, fgdGMM );
+        learnGMMs( img, mask, compIdxs, bgdGMM, fgdGMM );
         constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph );
         estimateSegmentation( graph, mask );
     }

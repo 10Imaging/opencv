@@ -92,9 +92,9 @@ void YUV2BGR_NV12_8u(
     int x = get_global_id(0);
     int y = get_global_id(1);
 
-    if (x + 1 < cols)
+    if (x < cols)
     {
-        if (y + 1 < rows)
+        if (y < rows)
         {
             __global uchar* pDstRow1 = pBGR + mad24(y, bgrStep, mad24(x, NCHANNELS, 0));
             __global uchar* pDstRow2 = pDstRow1 + bgrStep;

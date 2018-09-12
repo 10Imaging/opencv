@@ -47,8 +47,6 @@
 #include <opencv2/core/utils/configuration.private.hpp>
 #include <opencv2/core/utils/trace.private.hpp>
 
-#include <opencv2/core/utils/logger.hpp>
-
 namespace cv {
 
 static Mutex* __initialization_mutex = NULL;
@@ -61,34 +59,12 @@ Mutex& getInitializationMutex()
 // force initialization (single-threaded environment)
 Mutex* __initialization_mutex_initializer = &getInitializationMutex();
 
-static bool param_dumpErrors = utils::getConfigurationParameterBool("OPENCV_DUMP_ERRORS",
-#if defined(_DEBUG) || defined(__ANDROID__) || (defined(__GNUC__) && !defined(__EXCEPTIONS))
-    true
-#else
-    false
-#endif
-);
-
 } // namespace cv
-
-#ifndef CV_ERROR_SET_TERMINATE_HANDLER  // build config option
-# if defined(_WIN32)
-#   define CV_ERROR_SET_TERMINATE_HANDLER 1
-# endif
-#endif
-#if defined(CV_ERROR_SET_TERMINATE_HANDLER) && !CV_ERROR_SET_TERMINATE_HANDLER
-# undef CV_ERROR_SET_TERMINATE_HANDLER
-#endif
 
 #ifdef _MSC_VER
 # if _MSC_VER >= 1700
 #  pragma warning(disable:4447) // Disable warning 'main' signature found without threading model
 # endif
-#endif
-
-#ifdef CV_ERROR_SET_TERMINATE_HANDLER
-#include <exception>      // std::set_terminate
-#include <cstdlib>        // std::abort
 #endif
 
 #if defined __ANDROID__ || defined __linux__ || defined __FreeBSD__ || defined __HAIKU__
@@ -271,34 +247,10 @@ const char* Exception::what() const throw() { return msg.c_str(); }
 
 void Exception::formatMessage()
 {
-    size_t pos = err.find('\n');
-    bool multiline = pos != cv::String::npos;
-    if (multiline)
-    {
-        std::stringstream ss;
-        size_t prev_pos = 0;
-        while (pos != cv::String::npos)
-        {
-           ss << "> " << err.substr(prev_pos, pos - prev_pos) << std::endl;
-           prev_pos = pos + 1;
-           pos = err.find('\n', prev_pos);
-        }
-        ss << "> " << err.substr(prev_pos);
-        if (err[err.size() - 1] != '\n')
-            ss << std::endl;
-        err = ss.str();
-    }
-    if (func.size() > 0)
-    {
-        if (multiline)
-            msg = format("OpenCV(%s) %s:%d: error: (%d:%s) in function '%s'\n%s", CV_VERSION, file.c_str(), line, code, cvErrorStr(code), func.c_str(), err.c_str());
-        else
-            msg = format("OpenCV(%s) %s:%d: error: (%d:%s) %s in function '%s'\n", CV_VERSION, file.c_str(), line, code, cvErrorStr(code), err.c_str(), func.c_str());
-    }
+    if( func.size() > 0 )
+        msg = format("OpenCV(%s) %s:%d: error: (%d) %s: %s in function %s\n", CV_VERSION, file.c_str(), line, code, cvErrorStr(code), err.c_str(), func.c_str());
     else
-    {
-        msg = format("OpenCV(%s) %s:%d: error: (%d:%s) %s%s", CV_VERSION, file.c_str(), line, code, cvErrorStr(code), err.c_str(), multiline ? "" : "\n");
-    }
+        msg = format("OpenCV(%s) %s:%d: error: (%d) %s: %s\n", CV_VERSION, file.c_str(), line, code, cvErrorStr(code), err.c_str());
 }
 
 static const char* g_hwFeatureNames[CV_HARDWARE_MAX_FEATURE] = { NULL };
@@ -460,24 +412,24 @@ struct HWFeatures
         have[CV_CPU_FP16] = true;
     #elif defined __arm__ && defined __ANDROID__
       #if defined HAVE_CPUFEATURES
-        CV_LOG_INFO(NULL, "calling android_getCpuFeatures() ...");
+        __android_log_print(ANDROID_LOG_INFO, "OpenCV", "calling android_getCpuFeatures() ...");
         uint64_t features = android_getCpuFeatures();
-        CV_LOG_INFO(NULL, cv::format("calling android_getCpuFeatures() ... Done (%llx)", (long long)features));
+        __android_log_print(ANDROID_LOG_INFO, "OpenCV", "calling android_getCpuFeatures() ... Done (%llx)", features);
         have[CV_CPU_NEON] = (features & ANDROID_CPU_ARM_FEATURE_NEON) != 0;
         have[CV_CPU_FP16] = (features & ANDROID_CPU_ARM_FEATURE_VFP_FP16) != 0;
       #else
-        CV_LOG_INFO(NULL, "cpufeatures library is not available for CPU detection");
+        __android_log_print(ANDROID_LOG_INFO, "OpenCV", "cpufeatures library is not available for CPU detection");
         #if CV_NEON
-        CV_LOG_INFO(NULL, "- NEON instructions is enabled via build flags");
+        __android_log_print(ANDROID_LOG_INFO, "OpenCV", "- NEON instructions is enabled via build flags");
         have[CV_CPU_NEON] = true;
         #else
-        CV_LOG_INFO(NULL, "- NEON instructions is NOT enabled via build flags");
+        __android_log_print(ANDROID_LOG_INFO, "OpenCV", "- NEON instructions is NOT enabled via build flags");
         #endif
         #if CV_FP16
-        CV_LOG_INFO(NULL, "- FP16 instructions is enabled via build flags");
+        __android_log_print(ANDROID_LOG_INFO, "OpenCV", "- FP16 instructions is enabled via build flags");
         have[CV_CPU_FP16] = true;
         #else
-        CV_LOG_INFO(NULL, "- FP16 instructions is NOT enabled via build flags");
+        __android_log_print(ANDROID_LOG_INFO, "OpenCV", "- FP16 instructions is NOT enabled via build flags");
         #endif
       #endif
     #elif defined __arm__
@@ -532,7 +484,7 @@ struct HWFeatures
                     "******************************************************************\n");
             fprintf(stderr, "\nRequired baseline features:\n");
             checkFeatures(baseline_features, sizeof(baseline_features) / sizeof(baseline_features[0]), true);
-            CV_Error(cv::Error::StsAssert, "Missing support for required CPU baseline features. Check OpenCV build configuration and required CPU/HW setup.");
+            CV_ErrorNoReturn(cv::Error::StsAssert, "Missing support for required CPU baseline features. Check OpenCV build configuration and required CPU/HW setup.");
         }
 
         readSettings(baseline_features, sizeof(baseline_features) / sizeof(baseline_features[0]));
@@ -654,27 +606,6 @@ String getHardwareFeatureName(int feature)
     return name ? String(name) : String();
 }
 
-std::string getCPUFeaturesLine()
-{
-    const int features[] = { CV_CPU_BASELINE_FEATURES, CV_CPU_DISPATCH_FEATURES };
-    const int sz = sizeof(features) / sizeof(features[0]);
-    std::string result;
-    std::string prefix;
-    for (int i = 1; i < sz; ++i)
-    {
-        if (features[i] == 0)
-        {
-            prefix = "*";
-            continue;
-        }
-        if (i != 1) result.append(" ");
-        result.append(prefix);
-        result.append(getHWFeatureNameSafe(features[i]));
-        if (!checkHardwareSupport(features[i])) result.append("?");
-    }
-    return result;
-}
-
 volatile bool useOptimizedFlag = true;
 
 void setUseOptimized( bool flag )
@@ -760,6 +691,7 @@ int64 getCPUTickCount(void)
 
 int64 getCPUTickCount(void)
 {
+    int64 result = 0;
     unsigned upper, lower, tmp;
     __asm__ volatile(
                      "0:                  \n"
@@ -811,14 +743,6 @@ const String& getBuildInformation()
     return build_info;
 }
 
-String getVersionString() { return String(CV_VERSION); }
-
-int getVersionMajor() { return CV_VERSION_MAJOR; }
-
-int getVersionMinor() { return CV_VERSION_MINOR; }
-
-int getVersionRevision() { return CV_VERSION_REVISION; }
-
 String format( const char* fmt, ... )
 {
     AutoBuffer<char, 1024> buf;
@@ -828,7 +752,7 @@ String format( const char* fmt, ... )
         va_list va;
         va_start(va, fmt);
         int bsize = static_cast<int>(buf.size());
-        int len = cv_vsnprintf(buf.data(), bsize, fmt, va);
+        int len = cv_vsnprintf((char *)buf, bsize, fmt, va);
         va_end(va);
 
         CV_Assert(len >= 0 && "Check format string for errors");
@@ -838,7 +762,7 @@ String format( const char* fmt, ... )
             continue;
         }
         buf[bsize - 1] = 0;
-        return String(buf.data(), len);
+        return String((char *)buf, len);
     }
 }
 
@@ -959,61 +883,26 @@ int cv_vsnprintf(char* buf, int len, const char* fmt, va_list args)
 #endif
 }
 
-static void dumpException(const Exception& exc)
-{
-    const char* errorStr = cvErrorStr(exc.code);
-    char buf[1 << 12];
-
-    cv_snprintf(buf, sizeof(buf),
-        "OpenCV(%s) Error: %s (%s) in %s, file %s, line %d",
-        CV_VERSION,
-        errorStr, exc.err.c_str(), exc.func.size() > 0 ?
-        exc.func.c_str() : "unknown function", exc.file.c_str(), exc.line);
-#ifdef __ANDROID__
-    __android_log_print(ANDROID_LOG_ERROR, "cv::error()", "%s", buf);
-#else
-    fflush(stdout); fflush(stderr);
-    fprintf(stderr, "%s\n", buf);
-    fflush(stderr);
-#endif
-}
-
-#ifdef CV_ERROR_SET_TERMINATE_HANDLER
-static bool cv_terminate_handler_installed = false;
-static std::terminate_handler cv_old_terminate_handler;
-static cv::Exception cv_terminate_handler_exception;
-static bool param_setupTerminateHandler = utils::getConfigurationParameterBool("OPENCV_SETUP_TERMINATE_HANDLER", true);
-static void cv_terminate_handler() {
-    std::cerr << "OpenCV: terminate handler is called! The last OpenCV error is:\n";
-    dumpException(cv_terminate_handler_exception);
-    if (false /*cv_old_terminate_handler*/)  // buggy behavior is observed with doubled "abort/retry/ignore" windows
-        cv_old_terminate_handler();
-    abort();
-}
-
-#endif
-
 void error( const Exception& exc )
 {
-#ifdef CV_ERROR_SET_TERMINATE_HANDLER
-    {
-        cv::AutoLock lock(getInitializationMutex());
-        if (!cv_terminate_handler_installed)
-        {
-            if (param_setupTerminateHandler)
-                cv_old_terminate_handler = std::set_terminate(cv_terminate_handler);
-            cv_terminate_handler_installed = true;
-        }
-        cv_terminate_handler_exception = exc;
-    }
-#endif
-
     if (customErrorCallback != 0)
         customErrorCallback(exc.code, exc.func.c_str(), exc.err.c_str(),
                             exc.file.c_str(), exc.line, customErrorCallbackData);
-    else if (param_dumpErrors)
+    else
     {
-        dumpException(exc);
+        const char* errorStr = cvErrorStr(exc.code);
+        char buf[1 << 12];
+
+        cv_snprintf(buf, sizeof(buf),
+            "OpenCV(%s) Error: %s (%s) in %s, file %s, line %d",
+            CV_VERSION,
+            errorStr, exc.err.c_str(), exc.func.size() > 0 ?
+            exc.func.c_str() : "unknown function", exc.file.c_str(), exc.line);
+        fprintf( stderr, "%s\n", buf );
+        fflush( stderr );
+#  ifdef __ANDROID__
+        __android_log_print(ANDROID_LOG_ERROR, "cv::error()", "%s", buf);
+#  endif
     }
 
     if(breakOnError)
@@ -1677,7 +1566,7 @@ bool utils::getConfigurationParameterBool(const char* name, bool defaultValue)
     {
         return false;
     }
-    CV_Error(cv::Error::StsBadArg, cv::format("Invalid value for %s parameter: %s", name, value.c_str()));
+    CV_ErrorNoReturn(cv::Error::StsBadArg, cv::format("Invalid value for %s parameter: %s", name, value.c_str()));
 }
 
 
@@ -1708,7 +1597,7 @@ size_t utils::getConfigurationParameterSizeT(const char* name, size_t defaultVal
         return v * 1024 * 1024;
     else if (suffixStr == "KB" || suffixStr == "Kb" || suffixStr == "kb")
         return v * 1024;
-    CV_Error(cv::Error::StsBadArg, cv::format("Invalid value for %s parameter: %s", name, value.c_str()));
+    CV_ErrorNoReturn(cv::Error::StsBadArg, cv::format("Invalid value for %s parameter: %s", name, value.c_str()));
 }
 
 cv::String utils::getConfigurationParameterString(const char* name, const char* defaultValue)

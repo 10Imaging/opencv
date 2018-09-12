@@ -52,7 +52,7 @@ namespace cv
         double eps = getGradientEps();
         int i, n = getDims();
         AutoBuffer<double> x_buf(n);
-        double* x_ = x_buf.data();
+        double* x_ = x_buf;
         for( i = 0; i < n; i++ )
             x_[i] = x[i];
         for( i = 0; i < n; i++ )
@@ -68,15 +68,15 @@ namespace cv
 
 #define SEC_METHOD_ITERATIONS 4
 #define INITIAL_SEC_METHOD_SIGMA 0.1
-    class ConjGradSolverImpl CV_FINAL : public ConjGradSolver
+    class ConjGradSolverImpl : public ConjGradSolver
     {
     public:
-        Ptr<Function> getFunction() const CV_OVERRIDE;
-        void setFunction(const Ptr<Function>& f) CV_OVERRIDE;
-        TermCriteria getTermCriteria() const CV_OVERRIDE;
+        Ptr<Function> getFunction() const;
+        void setFunction(const Ptr<Function>& f);
+        TermCriteria getTermCriteria() const;
         ConjGradSolverImpl();
-        void setTermCriteria(const TermCriteria& termcrit) CV_OVERRIDE;
-        double minimize(InputOutputArray x) CV_OVERRIDE;
+        void setTermCriteria(const TermCriteria& termcrit);
+        double minimize(InputOutputArray x);
     protected:
         Ptr<MinProblemSolver::Function> _Function;
         TermCriteria _termcrit;

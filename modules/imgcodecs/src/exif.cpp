@@ -175,6 +175,7 @@ std::map<int, ExifEntry_t > ExifReader::getExif()
                     CV_THROW (ExifParsingError());
                 }
                 m_stream.read( reinterpret_cast<char*>(&m_data[0]), exifSize - offsetToTiffHeader );
+                count = m_stream.gcount();
                 exifFound = true;
                 break;
 

@@ -58,8 +58,8 @@ namespace
     class EmptyFrameSource : public FrameSource
     {
     public:
-        void nextFrame(OutputArray frame) CV_OVERRIDE;
-        void reset() CV_OVERRIDE;
+        void nextFrame(OutputArray frame);
+        void reset();
     };
 
     void EmptyFrameSource::nextFrame(OutputArray frame)
@@ -103,7 +103,7 @@ namespace
     class CaptureFrameSource : public FrameSource
     {
     public:
-        void nextFrame(OutputArray frame) CV_OVERRIDE;
+        void nextFrame(OutputArray frame);
 
     protected:
         VideoCapture vc_;
@@ -135,7 +135,7 @@ namespace
     public:
         VideoFrameSource(const String& fileName);
 
-        void reset() CV_OVERRIDE;
+        void reset();
 
     private:
         String fileName_;
@@ -158,7 +158,7 @@ namespace
     public:
         CameraFrameSource(int deviceId);
 
-        void reset() CV_OVERRIDE;
+        void reset();
 
     private:
         int deviceId_;
@@ -196,8 +196,9 @@ Ptr<FrameSource> cv::superres::createFrameSource_Camera(int deviceId)
 
 Ptr<FrameSource> cv::superres::createFrameSource_Video_CUDA(const String& fileName)
 {
-    CV_UNUSED(fileName);
+    (void) fileName;
     CV_Error(cv::Error::StsNotImplemented, "The called functionality is disabled for current build or platform");
+    return Ptr<FrameSource>();
 }
 
 #else // HAVE_OPENCV_CUDACODEC

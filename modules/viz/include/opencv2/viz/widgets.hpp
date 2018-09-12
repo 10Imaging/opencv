@@ -506,7 +506,7 @@ namespace cv
         };
 
         /////////////////////////////////////////////////////////////////////////////
-        /// Compound widgets
+        /// Compond widgets
 
         /** @brief This 3D Widget represents a coordinate system. :
         */

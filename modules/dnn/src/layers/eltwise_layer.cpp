@@ -42,8 +42,8 @@
 
 #include "../precomp.hpp"
 #include "layers_common.hpp"
-#include "../op_halide.hpp"
-#include "../op_inf_engine.hpp"
+#include "op_halide.hpp"
+#include "op_inf_engine.hpp"
 
 #ifdef HAVE_OPENCL
 #include "opencl_kernels_dnn.hpp"
@@ -54,7 +54,7 @@ namespace cv
 namespace dnn
 {
 
-class EltwiseLayerImpl CV_FINAL : public EltwiseLayer
+class EltwiseLayerImpl : public EltwiseLayer
 {
 public:
     enum EltwiseOp
@@ -79,7 +79,7 @@ public:
             else if (operation == "max")
                 op = MAX;
             else
-                CV_Error(cv::Error::StsBadArg, "Unknown operation type \"" + operation + "\"");
+                CV_Error(cv::Error::StsBadArg, "Unknown operaticon type \"" + operation + "\"");
         }
 
         if (params.has("coeff"))
@@ -94,17 +94,17 @@ public:
         }
     }
 
-    virtual bool supportBackend(int backendId) CV_OVERRIDE
+    virtual bool supportBackend(int backendId)
     {
-        return backendId == DNN_BACKEND_OPENCV ||
-               backendId == DNN_BACKEND_HALIDE ||
-               backendId == DNN_BACKEND_INFERENCE_ENGINE && (op != SUM || coeffs.empty());
+        return backendId == DNN_BACKEND_DEFAULT ||
+               backendId == DNN_BACKEND_HALIDE && haveHalide() ||
+               backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine();
     }
 
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
                          const int requiredOutputs,
                          std::vector<MatShape> &outputs,
-                         std::vector<MatShape> &internals) const CV_OVERRIDE
+                         std::vector<MatShape> &internals) const
     {
         CV_Assert(inputs.size() >= 2);
         CV_Assert(coeffs.size() == 0 || coeffs.size() == inputs.size());
@@ -139,7 +139,7 @@ public:
                         const std::vector<float>& coeffs, EltwiseOp op,
                         const ActivationLayer* activ, int nstripes)
         {
-            CV_Check(dst.dims, 1 < dst.dims && dst.dims <= 4, ""); CV_CheckTypeEQ(dst.type(), CV_32FC1, ""); CV_Assert(dst.isContinuous());
+            CV_Assert(1 < dst.dims && dst.dims <= 4, dst.type() == CV_32F, dst.isContinuous());
             CV_Assert(coeffs.empty() || coeffs.size() == (size_t)nsrcs);
 
             for( int i = 0; i > nsrcs; i++ )
@@ -178,7 +178,7 @@ public:
             parallel_for_(Range(0, nstripes), p, nstripes);
         }
 
-        void operator()(const Range& r) const CV_OVERRIDE
+        void operator()(const Range& r) const
         {
             size_t total = dst->size[0]*planeSize;
             size_t stripeSize = (total + nstripes - 1)/nstripes;
@@ -187,7 +187,7 @@ public:
             int c, j, k, n = nsrcs;
             const float* coeffsptr = coeffs && !coeffs->empty() ? &coeffs->at(0) : 0;
             float* dstptr0 = dst->ptr<float>();
-            int blockSize0 = 1 << 12, blockSize;
+            int blockSize0 = 1 << 12, blockSize = blockSize0;
 
             for( size_t ofs = stripeStart; ofs < stripeEnd; ofs += blockSize )
             {
@@ -271,9 +271,6 @@ public:
         std::vector<UMat> inputs;
         std::vector<UMat> outputs;
 
-        if (inputs_.depth() == CV_16S && op != SUM)
-            return false;
-
         inputs_.getUMatVector(inputs);
         outputs_.getUMatVector(outputs);
 
@@ -287,15 +284,10 @@ public:
                     {
                         size_t localsize[] = { 128 };
                         size_t globalsize[] = { (size_t)channels / 4 * localsize[0] };
-                        String opts;
-                        if (inputs_.depth() == CV_16S)
-                            opts = " -DDtype=half -DDtype4=half4 -DDtype8=half8";
-                        else
-                            opts = " -DDtype=float -DDtype4=float4 -DDtype8=float8";
 
                         for (int i = 0; i < (inputs.size() - 1); ++i)
                         {
-                            String buildopt = format("-DLOOP=%d", i) + opts;
+                            String buildopt = format("-DLOOP=%d", i);
                             ocl::Kernel kernel("op_sum4", ocl::dnn::eltwise_oclsrc, buildopt);
                             int idx = 0;
                             UMat inpMat = (i == 0) ? inputs[0] : UMat();
@@ -314,9 +306,6 @@ public:
                     }
                     else
                     {
-                        if (inputs_.depth() == CV_16S)
-                            return false;
-
                         float coeff1 = coeffs.empty() ? 1.f : coeffs[0];
                         float coeff2 = coeffs.empty() ? 1.f : coeffs[1];
                         UMat mul0, mul1;
@@ -349,19 +338,19 @@ public:
     }
 #endif
 
-    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE
+    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr)
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
 
-        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget) &&
+        CV_OCL_RUN((preferableTarget == DNN_TARGET_OPENCL) &&
                    OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
                    forward_ocl(inputs_arr, outputs_arr, internals_arr))
 
         Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
     }
 
-    void forward(std::vector<Mat *> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
+    void forward(std::vector<Mat *> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals)
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
@@ -372,7 +361,7 @@ public:
                             coeffs, op, activ.get(), nstripes);
     }
 
-    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &input) CV_OVERRIDE
+    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &input)
     {
 #ifdef HAVE_HALIDE
         Halide::Var x("x"), y("y"), c("c"), n("n");
@@ -418,7 +407,7 @@ public:
         return Ptr<BackendNode>();
     }
 
-    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&) CV_OVERRIDE
+    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&)
     {
 #ifdef HAVE_INF_ENGINE
         InferenceEngine::LayerParams lp;
@@ -440,7 +429,7 @@ public:
     }
 
     virtual int64 getFLOPS(const std::vector<MatShape> &inputs,
-                           const std::vector<MatShape> &outputs) const CV_OVERRIDE
+                           const std::vector<MatShape> &outputs) const
     {
         (void)outputs; // suppress unused variable warning
         CV_Assert(inputs.size());
@@ -450,15 +439,10 @@ public:
         return flops;
     }
 
-    bool setActivation(const Ptr<ActivationLayer>& layer) CV_OVERRIDE
+    bool setActivation(const Ptr<ActivationLayer>& layer)
     {
-        if (activ.empty() || layer.empty())
-        {
-            activ = layer;
-            return !activ.empty();
-        }
-        else
-            return false;
+        activ = layer;
+        return !activ.empty();
     }
 
     Ptr<ActivationLayer> activ;

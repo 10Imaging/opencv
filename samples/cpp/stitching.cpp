@@ -20,9 +20,8 @@ int parseCmdArgs(int argc, char** argv);
 int main(int argc, char* argv[])
 {
     int retval = parseCmdArgs(argc, argv);
-    if (retval) return EXIT_FAILURE;
+    if (retval) return -1;
 
-    //![stitching]
     Mat pano;
     Ptr<Stitcher> stitcher = Stitcher::create(mode, try_use_gpu);
     Stitcher::Status status = stitcher->stitch(imgs, pano);
@@ -30,13 +29,12 @@ int main(int argc, char* argv[])
     if (status != Stitcher::OK)
     {
         cout << "Can't stitch images, error code = " << int(status) << endl;
-        return EXIT_FAILURE;
+        return -1;
     }
-    //![stitching]
 
     imwrite(result_name, pano);
     cout << "stitching completed successfully\n" << result_name << " saved!";
-    return EXIT_SUCCESS;
+    return 0;
 }
 
 
@@ -65,7 +63,7 @@ int parseCmdArgs(int argc, char** argv)
     if (argc == 1)
     {
         printUsage(argv);
-        return EXIT_FAILURE;
+        return -1;
     }
 
     for (int i = 1; i < argc; ++i)
@@ -73,7 +71,7 @@ int parseCmdArgs(int argc, char** argv)
         if (string(argv[i]) == "--help" || string(argv[i]) == "/?")
         {
             printUsage(argv);
-            return EXIT_FAILURE;
+            return -1;
         }
         else if (string(argv[i]) == "--try_use_gpu")
         {
@@ -84,7 +82,7 @@ int parseCmdArgs(int argc, char** argv)
             else
             {
                 cout << "Bad --try_use_gpu flag value\n";
-                return EXIT_FAILURE;
+                return -1;
             }
             i++;
         }
@@ -106,7 +104,7 @@ int parseCmdArgs(int argc, char** argv)
             else
             {
                 cout << "Bad --mode flag value\n";
-                return EXIT_FAILURE;
+                return -1;
             }
             i++;
         }
@@ -116,7 +114,7 @@ int parseCmdArgs(int argc, char** argv)
             if (img.empty())
             {
                 cout << "Can't read image '" << argv[i] << "'\n";
-                return EXIT_FAILURE;
+                return -1;
             }
 
             if (divide_images)
@@ -132,5 +130,5 @@ int parseCmdArgs(int argc, char** argv)
                 imgs.push_back(img);
         }
     }
-    return EXIT_SUCCESS;
+    return 0;
 }

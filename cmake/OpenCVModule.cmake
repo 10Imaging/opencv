@@ -455,7 +455,7 @@ function(__ocv_sort_modules_by_deps __lst)
   set(${__lst} "${result};${result_extra}" PARENT_SCOPE)
 endfunction()
 
-# resolve dependencies
+# resolve dependensies
 function(__ocv_resolve_dependencies)
   foreach(m ${OPENCV_MODULES_DISABLED_USER})
     set(HAVE_${m} OFF CACHE INTERNAL "Module ${m} will not be built in current configuration")
@@ -698,11 +698,9 @@ endmacro()
 # setup include path for OpenCV headers for specified module
 # ocv_module_include_directories(<extra include directories/extra include modules>)
 macro(ocv_module_include_directories)
-  if(ENABLE_PRECOMPILED_HEADERS OR OPENCV_INCLUDE_DIR_APPEND_MODULE_SRC)
-    ocv_target_include_directories(${the_module} "${OPENCV_MODULE_${the_module}_LOCATION}/src")
-  endif()
   ocv_target_include_directories(${the_module}
       "${OPENCV_MODULE_${the_module}_LOCATION}/include"
+      "${OPENCV_MODULE_${the_module}_LOCATION}/src"
       "${CMAKE_CURRENT_BINARY_DIR}" # for precompiled headers
       )
   ocv_target_include_modules(${the_module} ${OPENCV_MODULE_${the_module}_DEPS} ${ARGN})
@@ -727,7 +725,7 @@ macro(ocv_set_module_sources)
     endif()
   endforeach()
 
-  # the hacky way to embed any files into the OpenCV without modification of its build system
+  # the hacky way to embeed any files into the OpenCV without modification of its build system
   if(COMMAND ocv_get_module_external_sources)
     ocv_get_module_external_sources()
   endif()
@@ -958,7 +956,7 @@ macro(_ocv_create_module)
     target_compile_definitions(${the_module} PRIVATE CVAPI_EXPORTS)
   endif()
 
-  # For dynamic link numbering conventions
+  # For dynamic link numbering convenions
   if(NOT ANDROID)
     # Android SDK build scripts can include only .so files into final .apk
     # As result we should not set version properties for Android
@@ -1132,7 +1130,7 @@ function(ocv_add_perf_tests)
       source_group("Src" FILES "${${the_target}_pch}")
       ocv_add_executable(${the_target} ${OPENCV_PERF_${the_module}_SOURCES} ${${the_target}_pch})
       ocv_target_include_modules(${the_target} ${perf_deps} "${perf_path}")
-      ocv_target_link_libraries(${the_target} LINK_PRIVATE ${perf_deps} ${OPENCV_MODULE_${the_module}_DEPS} ${OPENCV_LINKER_LIBS} ${OPENCV_PERF_${the_module}_DEPS})
+      ocv_target_link_libraries(${the_target} LINK_PRIVATE ${perf_deps} ${OPENCV_MODULE_${the_module}_DEPS} ${OPENCV_LINKER_LIBS})
       add_dependencies(opencv_perf_tests ${the_target})
 
       set_target_properties(${the_target} PROPERTIES LABELS "${OPENCV_MODULE_${the_module}_LABEL};PerfTest")
@@ -1175,7 +1173,7 @@ function(ocv_add_perf_tests)
 endfunction()
 
 # this is a command for adding OpenCV accuracy/regression tests to the module
-# ocv_add_accuracy_tests(<list of extra dependencies>)
+# ocv_add_accuracy_tests([FILES <source group name> <list of sources>] [DEPENDS_ON] <list of extra dependencies>)
 function(ocv_add_accuracy_tests)
   ocv_debug_message("ocv_add_accuracy_tests(" ${ARGN} ")")
 
@@ -1202,9 +1200,6 @@ function(ocv_add_accuracy_tests)
         set(OPENCV_TEST_${the_module}_SOURCES ${test_srcs} ${test_hdrs})
       endif()
 
-      if(OPENCV_MODULE_${the_module}_TEST_SOURCES_DISPATCHED)
-        list(APPEND OPENCV_TEST_${the_module}_SOURCES ${OPENCV_MODULE_${the_module}_TEST_SOURCES_DISPATCHED})
-      endif()
       ocv_compiler_optimization_process_sources(OPENCV_TEST_${the_module}_SOURCES OPENCV_TEST_${the_module}_DEPS ${the_target})
 
       if(NOT BUILD_opencv_world)
@@ -1214,10 +1209,7 @@ function(ocv_add_accuracy_tests)
       source_group("Src" FILES "${${the_target}_pch}")
       ocv_add_executable(${the_target} ${OPENCV_TEST_${the_module}_SOURCES} ${${the_target}_pch})
       ocv_target_include_modules(${the_target} ${test_deps} "${test_path}")
-      if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/test")
-        ocv_target_include_directories(${the_target} "${CMAKE_CURRENT_BINARY_DIR}/test")
-      endif()
-      ocv_target_link_libraries(${the_target} LINK_PRIVATE ${test_deps} ${OPENCV_MODULE_${the_module}_DEPS} ${OPENCV_LINKER_LIBS} ${OPENCV_TEST_${the_module}_DEPS})
+      ocv_target_link_libraries(${the_target} LINK_PRIVATE ${test_deps} ${OPENCV_MODULE_${the_module}_DEPS} ${OPENCV_LINKER_LIBS})
       add_dependencies(opencv_tests ${the_target})
 
       set_target_properties(${the_target} PROPERTIES LABELS "${OPENCV_MODULE_${the_module}_LABEL};AccuracyTest")

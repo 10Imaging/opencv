@@ -328,7 +328,7 @@ public:
         *ok = (func != NULL);
     }
 
-    void operator()( const cv::Range& range ) const CV_OVERRIDE
+    void operator()( const cv::Range& range ) const
     {
         CV_DbgAssert(*ok);
 

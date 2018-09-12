@@ -48,7 +48,7 @@
 namespace cv
 {
 
-class CalibrateDebevecImpl CV_FINAL : public CalibrateDebevec
+class CalibrateDebevecImpl : public CalibrateDebevec
 {
 public:
     CalibrateDebevecImpl(int _samples, float _lambda, bool _random) :
@@ -60,7 +60,7 @@ public:
     {
     }
 
-    void process(InputArrayOfArrays src, OutputArray dst, InputArray _times) CV_OVERRIDE
+    void process(InputArrayOfArrays src, OutputArray dst, InputArray _times)
     {
         CV_INSTRUMENT_REGION()
 
@@ -158,16 +158,16 @@ public:
         exp(result, result);
     }
 
-    int getSamples() const CV_OVERRIDE { return samples; }
-    void setSamples(int val) CV_OVERRIDE { samples = val; }
+    int getSamples() const { return samples; }
+    void setSamples(int val) { samples = val; }
 
-    float getLambda() const CV_OVERRIDE { return lambda; }
-    void setLambda(float val) CV_OVERRIDE { lambda = val; }
+    float getLambda() const { return lambda; }
+    void setLambda(float val) { lambda = val; }
 
-    bool getRandom() const CV_OVERRIDE { return random; }
-    void setRandom(bool val) CV_OVERRIDE { random = val; }
+    bool getRandom() const { return random; }
+    void setRandom(bool val) { random = val; }
 
-    void write(FileStorage& fs) const CV_OVERRIDE
+    void write(FileStorage& fs) const
     {
         writeFormat(fs);
         fs << "name" << name
@@ -176,7 +176,7 @@ public:
            << "random" << static_cast<int>(random);
     }
 
-    void read(const FileNode& fn) CV_OVERRIDE
+    void read(const FileNode& fn)
     {
         FileNode n = fn["name"];
         CV_Assert(n.isString() && String(n) == name);
@@ -199,7 +199,7 @@ Ptr<CalibrateDebevec> createCalibrateDebevec(int samples, float lambda, bool ran
     return makePtr<CalibrateDebevecImpl>(samples, lambda, random);
 }
 
-class CalibrateRobertsonImpl CV_FINAL : public CalibrateRobertson
+class CalibrateRobertsonImpl : public CalibrateRobertson
 {
 public:
     CalibrateRobertsonImpl(int _max_iter, float _threshold) :
@@ -210,7 +210,7 @@ public:
     {
     }
 
-    void process(InputArrayOfArrays src, OutputArray dst, InputArray _times) CV_OVERRIDE
+    void process(InputArrayOfArrays src, OutputArray dst, InputArray _times)
     {
         CV_INSTRUMENT_REGION()
 
@@ -272,15 +272,15 @@ public:
         }
     }
 
-    int getMaxIter() const CV_OVERRIDE { return max_iter; }
-    void setMaxIter(int val) CV_OVERRIDE { max_iter = val; }
+    int getMaxIter() const { return max_iter; }
+    void setMaxIter(int val) { max_iter = val; }
 
-    float getThreshold() const CV_OVERRIDE { return threshold; }
-    void setThreshold(float val) CV_OVERRIDE { threshold = val; }
+    float getThreshold() const { return threshold; }
+    void setThreshold(float val) { threshold = val; }
 
-    Mat getRadiance() const CV_OVERRIDE { return radiance; }
+    Mat getRadiance() const { return radiance; }
 
-    void write(FileStorage& fs) const CV_OVERRIDE
+    void write(FileStorage& fs) const
     {
         writeFormat(fs);
         fs << "name" << name
@@ -288,7 +288,7 @@ public:
            << "threshold" << threshold;
     }
 
-    void read(const FileNode& fn) CV_OVERRIDE
+    void read(const FileNode& fn)
     {
         FileNode n = fn["name"];
         CV_Assert(n.isString() && String(n) == name);

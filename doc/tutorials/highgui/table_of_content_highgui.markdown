@@ -5,8 +5,6 @@ This section contains tutorials about how to use the built-in graphical user int
 
 -   @subpage tutorial_trackbar
 
-    *Languages:* C++, Java, Python
-
     *Compatibility:* \> OpenCV 2.0
 
     *Author:* Ana Huamán

@@ -52,36 +52,36 @@
 namespace cv
 {
 
-class WebPDecoder CV_FINAL : public BaseImageDecoder
+class WebPDecoder : public BaseImageDecoder
 {
 public:
 
     WebPDecoder();
-    ~WebPDecoder() CV_OVERRIDE;
+    ~WebPDecoder();
 
-    bool readData( Mat& img ) CV_OVERRIDE;
-    bool readHeader() CV_OVERRIDE;
+    bool readData( Mat& img );
+    bool readHeader();
     void close();
 
-    size_t signatureLength() const CV_OVERRIDE;
-    bool checkSignature( const String& signature) const CV_OVERRIDE;
+    size_t signatureLength() const;
+    bool checkSignature( const String& signature) const;
 
-    ImageDecoder newDecoder() const CV_OVERRIDE;
+    ImageDecoder newDecoder() const;
 
 protected:
     Mat data;
     int channels;
 };
 
-class WebPEncoder CV_FINAL : public BaseImageEncoder
+class WebPEncoder : public BaseImageEncoder
 {
 public:
     WebPEncoder();
-    ~WebPEncoder() CV_OVERRIDE;
+    ~WebPEncoder();
 
-    bool write(const Mat& img, const std::vector<int>& params) CV_OVERRIDE;
+    bool write(const Mat& img, const std::vector<int>& params);
 
-    ImageEncoder newEncoder() const CV_OVERRIDE;
+    ImageEncoder newEncoder() const;
 };
 
 }

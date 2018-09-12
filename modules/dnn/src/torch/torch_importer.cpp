@@ -101,8 +101,6 @@ struct TorchImporter
     std::set<int> readedIndexes;
     std::map<int, Mat> storages;
     std::map<int, Mat> tensors;
-    // Stack with numbers of unconnected layers per scope (Sequential, ConcatTable etc.)
-    std::vector<int> numUnconnectedLayers;
 
     struct Module
     {
@@ -311,11 +309,11 @@ struct TorchImporter
                 int numModules = curModule->modules.size();
                 readTorchObject(index);
 
-                if (tensors.count(index)) //tensor was read
+                if (tensors.count(index)) //tensor was readed
                 {
                     tensorParams.insert(std::make_pair(key, std::make_pair(index, tensors[index])));
                 }
-                else if (storages.count(index)) //storage was read
+                else if (storages.count(index)) //storage was readed
                 {
                     Mat &matStorage = storages[index];
                     Mat matCasted;
@@ -370,8 +368,8 @@ struct TorchImporter
         int ndims = readInt();
         AutoBuffer<int64, 4> sizes(ndims);
         AutoBuffer<int64, 4> steps(ndims);
-        THFile_readLongRaw(file, sizes.data(), ndims);
-        THFile_readLongRaw(file, steps.data(), ndims);
+        THFile_readLongRaw(file, sizes, ndims);
+        THFile_readLongRaw(file, steps, ndims);
         long offset = readLong() - 1;
 
         //read Storage
@@ -399,7 +397,7 @@ struct TorchImporter
         size_t requireElems = (size_t)offset + (size_t)steps[0] * (size_t)sizes[0];
         size_t storageElems = storages[indexStorage].total();
         if (requireElems > storageElems)
-            CV_Error(Error::StsBadSize, "Storage has insufficient number of elements for requested Tensor");
+            CV_Error(Error::StsBadSize, "Storage has insufficent number of elemements for requested Tensor");
 
         //convert sizes
         AutoBuffer<int, 4> isizes(ndims);
@@ -411,7 +409,7 @@ struct TorchImporter
         }
 
         //allocate Blob
-        Mat srcMat(ndims, isizes.data(), typeTensor , storages[indexStorage].ptr() + offset*CV_ELEM_SIZE(typeTensor), ssteps.data());
+        Mat srcMat(ndims, (int*)isizes, typeTensor , storages[indexStorage].ptr() + offset*CV_ELEM_SIZE(typeTensor), (size_t*)ssteps);
         int dstType = CV_32F;
 
         Mat blob;
@@ -491,7 +489,15 @@ struct TorchImporter
                     layerParams.set("inputDimension", scalarParams.get<int>("inputDimension"));
                     layerParams.set("outputDimension", scalarParams.get<int>("outputDimension"));
                 }
-                else if (nnName == "Concat" || nnName == "JoinTable" || nnName == "DepthConcat")
+                if (nnName == "Concat")
+                {
+                    layerParams.set("dimension", scalarParams.get<int>("dimension"));
+                }
+                if (nnName == "JoinTable")
+                {
+                    layerParams.set("dimension", scalarParams.get<int>("dimension"));
+                }
+                if (nnName == "DepthConcat")
                 {
                     layerParams.set("dimension", scalarParams.get<int>("dimension"));
                 }
@@ -592,8 +598,8 @@ struct TorchImporter
                 DictValue dimParam = scalarParams.get("size");
                 layerParams.set("dim", dimParam);
 
-                int axis = (int)scalarParams.get<bool>("batchMode", true);
-                layerParams.set("axis", axis);
+                if (scalarParams.has("batchMode") && scalarParams.get<bool>("batchMode"))
+                    layerParams.set("axis", 1);
 
                 curModule->modules.push_back(newModule);
             }
@@ -896,8 +902,8 @@ struct TorchImporter
             else if (nnName == "SpatialZeroPadding" || nnName == "SpatialReflectionPadding")
             {
                 readTorchTable(scalarParams, tensorParams);
-                CV_Assert_N(scalarParams.has("pad_l"), scalarParams.has("pad_r"),
-                            scalarParams.has("pad_t"), scalarParams.has("pad_b"));
+                CV_Assert(scalarParams.has("pad_l"), scalarParams.has("pad_r"),
+                          scalarParams.has("pad_t"), scalarParams.has("pad_b"));
                 int padTop = scalarParams.get<int>("pad_t");
                 int padLeft = scalarParams.get<int>("pad_l");
                 int padRight = scalarParams.get<int>("pad_r");
@@ -938,33 +944,9 @@ struct TorchImporter
                 layerParams.set("end", DictValue::arrayInt<int*>(&ends[0], 4));
                 curModule->modules.push_back(newModule);
             }
-            else if (nnName == "SpatialUpSamplingNearest")
-            {
-                readTorchTable(scalarParams, tensorParams);
-                CV_Assert(scalarParams.has("scale_factor"));
-                int scale_factor = scalarParams.get<int>("scale_factor");
-                newModule->apiType = "Resize";
-                layerParams.set("interpolation", "nearest");
-                layerParams.set("zoom_factor", scale_factor);
-                curModule->modules.push_back(newModule);
-            }
             else
             {
-                // Importer does not know how to map Torch's layer type to an OpenCV's one.
-                // However we parse all the parameters to let user create a custom layer.
-                readTorchTable(scalarParams, tensorParams);
-                for (std::map<String, DictValue>::const_iterator it = scalarParams.begin();
-                     it != scalarParams.end(); ++it)
-                {
-                    layerParams.set(it->first, it->second);
-                }
-                for (std::map<String, std::pair<int, Mat> >::iterator it = tensorParams.begin();
-                     it != tensorParams.end(); ++it)
-                {
-                    layerParams.blobs.push_back(it->second.second);
-                }
-                newModule->apiType = nnName;
-                curModule->modules.push_back(newModule);
+                CV_Error(Error::StsNotImplemented, "Unknown nn class \"" + className + "\"");
             }
         }
         else
@@ -1114,7 +1096,6 @@ struct TorchImporter
                 {
                     newId = fill(module->modules[i], addedModules, prevLayerId, prevOutNum);
                 }
-                numUnconnectedLayers.push_back(module->modules.size());
                 return newId;
             }
             else if (module->thName == "JoinTable") {
@@ -1127,14 +1108,9 @@ struct TorchImporter
                 mergeId = net.addLayer(generateLayerName("torchMerge"), "Concat", mergeParams);
                 addedModules.push_back(std::make_pair(mergeId, module));
 
-                // Connect to the last number of unconnected layers.
-                CV_Assert(!numUnconnectedLayers.empty());
-                const int numInputs = numUnconnectedLayers.back();
-                numUnconnectedLayers.pop_back();
-                CV_Assert(numInputs <= ids.size());
-                for (int i = 0; i < numInputs; i++)
+                for (int i = 0; i < ids.size(); i++)
                 {
-                    net.connect(ids[ids.size() - numInputs + i], 0, mergeId, i);
+                    net.connect(ids[i], 0, mergeId, i);
                 }
 
                 return mergeId;
@@ -1148,14 +1124,9 @@ struct TorchImporter
 
                 int id = net.addLayer(name, "Eltwise", params);
 
-                // Connect to the last number of unconnected layers.
-                CV_Assert(!numUnconnectedLayers.empty());
-                const int numInputs = numUnconnectedLayers.back();
-                numUnconnectedLayers.pop_back();
-                CV_Assert(numInputs <= ids.size());
-                for (int i = 0; i < numInputs; i++)
+                for (int i = 0; i < ids.size(); i++)
                 {
-                    net.connect(ids[ids.size() - numInputs + i], 0, id, i);
+                    net.connect(ids[i], 0, id, i);
                 }
 
                 addedModules.push_back(std::make_pair(id, module));

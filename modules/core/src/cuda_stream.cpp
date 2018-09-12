@@ -117,7 +117,6 @@ namespace
     {
     public:
         MemoryPool();
-        ~MemoryPool() { release(); }
 
         void initialize(size_t stackSize, int stackCount);
         void release();
@@ -137,8 +136,6 @@ namespace
         uchar* mem_;
 
         std::vector<MemoryStack> stacks_;
-
-        MemoryPool(const MemoryPool&); //= delete;
     };
 
     MemoryPool::MemoryPool() : initialized_(false), mem_(0)
@@ -339,7 +336,7 @@ namespace cv { namespace cuda
         ~DefaultDeviceInitializer();
 
         Stream& getNullStream(int deviceId);
-        MemoryPool& getMemoryPool(int deviceId);
+        MemoryPool* getMemoryPool(int deviceId);
 
     private:
         void initStreams();
@@ -348,7 +345,7 @@ namespace cv { namespace cuda
         std::vector<Ptr<Stream> > streams_;
         Mutex streams_mtx_;
 
-        std::vector<Ptr<MemoryPool> > pools_;
+        std::vector<MemoryPool> pools_;
         Mutex pools_mtx_;
     };
 
@@ -363,7 +360,7 @@ namespace cv { namespace cuda
         for (size_t i = 0; i < pools_.size(); ++i)
         {
             cudaSetDevice(static_cast<int>(i));
-            pools_[i]->release();
+            pools_[i].release();
         }
 
         pools_.clear();
@@ -393,7 +390,7 @@ namespace cv { namespace cuda
         return *streams_[deviceId];
     }
 
-    MemoryPool& DefaultDeviceInitializer::getMemoryPool(int deviceId)
+    MemoryPool* DefaultDeviceInitializer::getMemoryPool(int deviceId)
     {
         AutoLock lock(pools_mtx_);
 
@@ -402,21 +399,12 @@ namespace cv { namespace cuda
             int deviceCount = getCudaEnabledDeviceCount();
 
             if (deviceCount > 0)
-            {
                 pools_.resize(deviceCount);
-                for (size_t i = 0; i < pools_.size(); ++i)
-                {
-                    cudaSetDevice(static_cast<int>(i));
-                    pools_[i] = makePtr<MemoryPool>();
-                }
-            }
         }
 
         CV_DbgAssert( deviceId >= 0 && deviceId < static_cast<int>(pools_.size()) );
 
-        MemoryPool* p = pools_[deviceId];
-        CV_Assert(p);
-        return *p;
+        return &pools_[deviceId];
     }
 
     DefaultDeviceInitializer initializer;
@@ -450,6 +438,7 @@ bool cv::cuda::Stream::queryIfComplete() const
 {
 #ifndef HAVE_CUDA
     throw_no_cuda();
+    return false;
 #else
     cudaError_t err = cudaStreamQuery(impl_->stream);
 
@@ -525,6 +514,8 @@ Stream& cv::cuda::Stream::Null()
 {
 #ifndef HAVE_CUDA
     throw_no_cuda();
+    static Stream stream;
+    return stream;
 #else
     const int deviceId = getDevice();
     return initializer.getNullStream(deviceId);
@@ -569,8 +560,8 @@ namespace
         explicit StackAllocator(cudaStream_t stream);
         ~StackAllocator();
 
-        bool allocate(GpuMat* mat, int rows, int cols, size_t elemSize) CV_OVERRIDE;
-        void free(GpuMat* mat) CV_OVERRIDE;
+        bool allocate(GpuMat* mat, int rows, int cols, size_t elemSize);
+        void free(GpuMat* mat);
 
     private:
         StackAllocator(const StackAllocator&);
@@ -586,7 +577,7 @@ namespace
         if (enableMemoryPool)
         {
             const int deviceId = getDevice();
-            memStack_ = initializer.getMemoryPool(deviceId).getFreeMemStack();
+            memStack_ = initializer.getMemoryPool(deviceId)->getFreeMemStack();
             DeviceInfo devInfo(deviceId);
             alignment_ = devInfo.textureAlignment();
         }
@@ -594,11 +585,10 @@ namespace
 
     StackAllocator::~StackAllocator()
     {
+        cudaStreamSynchronize(stream_);
+
         if (memStack_ != 0)
-        {
-            cudaStreamSynchronize(stream_);
             memStack_->pool->returnMemStack(memStack_);
-        }
     }
 
     size_t alignUp(size_t what, size_t alignment)
@@ -678,7 +668,7 @@ void cv::cuda::setBufferPoolConfig(int deviceId, size_t stackSize, int stackCoun
     if (deviceId >= 0)
     {
         setDevice(deviceId);
-        initializer.getMemoryPool(deviceId).initialize(stackSize, stackCount);
+        initializer.getMemoryPool(deviceId)->initialize(stackSize, stackCount);
     }
     else
     {
@@ -687,7 +677,7 @@ void cv::cuda::setBufferPoolConfig(int deviceId, size_t stackSize, int stackCoun
         for (deviceId = 0; deviceId < deviceCount; ++deviceId)
         {
             setDevice(deviceId);
-            initializer.getMemoryPool(deviceId).initialize(stackSize, stackCount);
+            initializer.getMemoryPool(deviceId)->initialize(stackSize, stackCount);
         }
     }
 
@@ -714,6 +704,7 @@ GpuMat cv::cuda::BufferPool::getBuffer(int rows, int cols, int type)
     (void) cols;
     (void) type;
     throw_no_cuda();
+    return GpuMat();
 #else
     GpuMat buf(allocator_);
     buf.create(rows, cols, type);
@@ -803,6 +794,7 @@ bool cv::cuda::Event::queryIfComplete() const
 {
 #ifndef HAVE_CUDA
     throw_no_cuda();
+    return false;
 #else
     cudaError_t err = cudaEventQuery(impl_->event);
 
@@ -829,6 +821,7 @@ float cv::cuda::Event::elapsedTime(const Event& start, const Event& end)
     (void) start;
     (void) end;
     throw_no_cuda();
+    return 0.0f;
 #else
     float ms;
     cudaSafeCall( cudaEventElapsedTime(&ms, start.impl_->event, end.impl_->event) );

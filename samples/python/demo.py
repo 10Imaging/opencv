@@ -7,6 +7,7 @@ Sample-launcher application.
 # Python 2/3 compatibility
 from __future__ import print_function
 import sys
+PY3 = sys.version_info[0] == 3
 
 # local modules
 from common import splitfn
@@ -16,11 +17,11 @@ import webbrowser
 from glob import glob
 from subprocess import Popen
 
-try:
-    import tkinter as tk  # Python 3
+if PY3:
+    import tkinter as tk
     from tkinter.scrolledtext import ScrolledText
-except ImportError:
-    import Tkinter as tk  # Python 2
+else:
+    import Tkinter as tk
     from ScrolledText import ScrolledText
 
 
@@ -115,10 +116,10 @@ class App:
         name = self.demos_lb.get( self.demos_lb.curselection()[0] )
         fn = self.samples[name]
         loc = {}
-        try:
-            execfile(fn, loc)           # Python 2
-        except NameError:
-            exec(open(fn).read(), loc)  # Python 3
+        if PY3:
+            exec(open(fn).read(), loc)
+        else:
+            execfile(fn, loc)
         descr = loc.get('__doc__', 'no-description')
 
         self.linker.reset()

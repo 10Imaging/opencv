@@ -123,16 +123,15 @@ static char* icvJSONParseKey( CvFileStorage* fs, char* ptr, CvFileNode* map, CvF
         CV_PARSE_ERROR( "Key must start with \'\"\'" );
 
     char * beg = ptr + 1;
+    char * end = beg;
 
-    do {
-        ++ptr;
-        CV_PERSISTENCE_CHECK_END_OF_BUFFER_BUG();
-    } while( cv_isprint(*ptr) && *ptr != '"' );
+    do ++ptr;
+    while( cv_isprint(*ptr) && *ptr != '"' );
 
     if( *ptr != '"' )
         CV_PARSE_ERROR( "Key must end with \'\"\'" );
 
-    const char * end = ptr;
+    end = ptr;
     ptr++;
     ptr = icvJSONSkipSpaces( fs, ptr );
     if ( ptr == 0 || fs->dummy_eof )
@@ -368,25 +367,17 @@ static char* icvJSONParseValue( CvFileStorage* fs, char* ptr, CvFileNode* node )
     {    /**************** number ****************/
         char * beg = ptr;
         if ( *ptr == '+' || *ptr == '-' )
-        {
             ptr++;
-            CV_PERSISTENCE_CHECK_END_OF_BUFFER_BUG();
-        }
         while( cv_isdigit(*ptr) )
-        {
             ptr++;
-            CV_PERSISTENCE_CHECK_END_OF_BUFFER_BUG();
-        }
         if (*ptr == '.' || *ptr == 'e')
         {
             node->data.f = icv_strtod( fs, beg, &ptr );
-            CV_PERSISTENCE_CHECK_END_OF_BUFFER_BUG();
             node->tag = CV_NODE_REAL;
         }
         else
         {
             node->data.i = static_cast<int>(strtol( beg, &ptr, 0 ));
-            CV_PERSISTENCE_CHECK_END_OF_BUFFER_BUG();
             node->tag = CV_NODE_INT;
         }
 
@@ -397,12 +388,8 @@ static char* icvJSONParseValue( CvFileStorage* fs, char* ptr, CvFileNode* node )
     {    /**************** other data ****************/
         const char * beg = ptr;
         size_t len = 0u;
-        for ( ; cv_isalpha(*ptr) && len <= 6u; )
-        {
+        for ( ; cv_isalpha(*ptr) && len <= 6u; ptr++ )
             len++;
-            ptr++;
-            CV_PERSISTENCE_CHECK_END_OF_BUFFER_BUG();
-        }
 
         if ( len >= 4u && memcmp( beg, "null", 4u ) == 0 )
         {
@@ -575,12 +562,12 @@ void icvJSONParse( CvFileStorage* fs )
     if ( *ptr == '{' )
     {
         CvFileNode* root_node = (CvFileNode*)cvSeqPush( fs->roots, 0 );
-        icvJSONParseMap( fs, ptr, root_node );
+        ptr = icvJSONParseMap( fs, ptr, root_node );
     }
     else if ( *ptr == '[' )
     {
         CvFileNode* root_node = (CvFileNode*)cvSeqPush( fs->roots, 0 );
-        icvJSONParseSeq( fs, ptr, root_node );
+        ptr = icvJSONParseSeq( fs, ptr, root_node );
     }
     else
     {
@@ -667,7 +654,7 @@ void icvJSONWrite( CvFileStorage* fs, const char* key, const char* data )
             *ptr++ = '\n';
             *ptr++ = '\0';
             ::icvPuts( fs, fs->buffer_start );
-            fs->buffer = fs->buffer_start;
+            ptr = fs->buffer = fs->buffer_start;
         }
         ptr = icvFSFlush(fs);
     }

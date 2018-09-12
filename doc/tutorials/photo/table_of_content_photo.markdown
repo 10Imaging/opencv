@@ -5,8 +5,6 @@ Use OpenCV for advanced photo processing.
 
 -   @subpage tutorial_hdr_imaging
 
-    *Languages:* C++, Java, Python
-
     *Compatibility:* \> OpenCV 3.0
 
     *Author:* Fedor Morozov

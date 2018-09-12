@@ -50,17 +50,17 @@
 namespace cv
 {
 
-class Jpeg2KDecoder CV_FINAL : public BaseImageDecoder
+class Jpeg2KDecoder : public BaseImageDecoder
 {
 public:
 
     Jpeg2KDecoder();
     virtual ~Jpeg2KDecoder();
 
-    bool  readData( Mat& img ) CV_OVERRIDE;
-    bool  readHeader() CV_OVERRIDE;
+    bool  readData( Mat& img );
+    bool  readHeader();
     void  close();
-    ImageDecoder newDecoder() const CV_OVERRIDE;
+    ImageDecoder newDecoder() const;
 
 protected:
     bool  readComponent8u( uchar *data, void *buffer, int step, int cmpt,
@@ -73,15 +73,15 @@ protected:
 };
 
 
-class Jpeg2KEncoder CV_FINAL : public BaseImageEncoder
+class Jpeg2KEncoder : public BaseImageEncoder
 {
 public:
     Jpeg2KEncoder();
     virtual ~Jpeg2KEncoder();
 
-    bool  isFormatSupported( int depth ) const CV_OVERRIDE;
-    bool  write( const Mat& img, const std::vector<int>& params ) CV_OVERRIDE;
-    ImageEncoder newEncoder() const CV_OVERRIDE;
+    bool  isFormatSupported( int depth ) const;
+    bool  write( const Mat& img, const std::vector<int>& params );
+    ImageEncoder newEncoder() const;
 
 protected:
     bool  writeComponent8u( void *img, const Mat& _img );

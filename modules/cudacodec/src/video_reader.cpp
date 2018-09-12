@@ -65,9 +65,9 @@ namespace
         explicit VideoReaderImpl(const Ptr<VideoSource>& source);
         ~VideoReaderImpl();
 
-        bool nextFrame(OutputArray frame) CV_OVERRIDE;
+        bool nextFrame(OutputArray frame);
 
-        FormatInfo format() const CV_OVERRIDE;
+        FormatInfo format() const;
 
     private:
         Ptr<VideoSource> videoSource_;

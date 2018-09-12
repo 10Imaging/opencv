@@ -260,7 +260,7 @@ endif()
 set(OpenCV_LIBRARIES ${OpenCV_LIBS})
 
 #
-# Some macros for samples
+# Some macroses for samples
 #
 macro(ocv_check_dependencies)
   set(OCV_DEPENDENCIES_FOUND TRUE)
