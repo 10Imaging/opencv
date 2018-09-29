@@ -6,22 +6,13 @@ if [ "${1}" == "dropbox" ]; THEN
   cp -av install.android.debug ${DBX}
   cp -av install.android.release ${DBX}
 else
-  rm -rf ~/10imaging/iris/opencv/src/main/jni/include/*
-  rm -rf ~/10imaging/iris/opencv/src/main/java/*
-  rm -rf ~/10imaging/iris/opencv/src/main/res/*
-  rm -rf ~/10imaging/iris/opencv/src/main/jniLibs/*
+  rm -rf ~/10imaging/iris/opencv/src/main/*
 fi
 
+[ ! -d ${HOME}/10imaging/iris/opencv/src/main] && echo "Iris not found at "${HOME}/10imaging/iris && exit 1
+
 if [ "${1}" == "debug" ]; then
-  cp -av install.android.debug/src/main/jni/include/* ~/10imaging/iris/opencv/src/main/jni/include/
-  cp -av install.android.debug/src/main/java/* ~/10imaging/iris/opencv/src/main/java/
-  cp -av install.android.debug/src/main/res/* ~/10imaging/iris/opencv/src/main/res/
-  cp -av install.android.debug/src/main/jnilibs/* ~/10imaging/iris/opencv/src/main/jniLibs/
-  cp -av install.android.debug/src/main/AndroidManifest.xml ~/10imaging/iris/opencv/src/main/AndroidManifest.xml
+  cp -av install.android.debug/src/main/* ~/10imaging/iris/opencv/src/main
 else
-  cp -av install.android.release/src/main/jni/include/* ~/10imaging/iris/opencv/src/main/jni/include/
-  cp -av install.android.release/src/main/java/* ~/10imaging/iris/opencv/src/main/java/
-  cp -av install.android.release/src/main/res/* ~/10imaging/iris/opencv/src/main/res/
-  cp -av install.android.release/src/main/jnilibs/* ~/10imaging/iris/opencv/src/main/jniLibs/
-  cp -av install.android.release/src/main/AndroidManifest.xml ~/10imaging/iris/opencv/src/main/AndroidManifest.xml
+  cp -av install.android.release/src/main/* ~/10imaging/iris/opencv/src/main
 fi
