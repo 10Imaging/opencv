@@ -175,33 +175,20 @@ function install_library ()
   #[ -d install/sdk/native/3rdparty/libs/armeabi-v7a ] && rm -rf install/sdk/native/3rdparty/libs/armeabi-v7a
   #[ -d install/sdk/native/3rdparty/libs/armeabi-v7a-hard ] && mv install/sdk/native/3rdparty/libs/armeabi-v7a-hard install/sdk/native/3rdparty/libs/armeabi-v7a
 
-  cp -av $BUILD_ROOT/platforms/android/template/opencv-lib/* ${INSTALL_DIR}
-  cp -av lint.xml ${INSTALL_DIR}
-  cp -av bin/aidl ${INSTALL_DIR}/src/main
-  cp -av bin/AndroidManifest.xml ${INSTALL_DIR}/src/main
-
-  mkdir -p ${INSTALL_DIR}/src/main/jnilibs
-  #cp -av install/sdk/native/3rdparty/libs/* ${INSTALL_DIR}/src/main/jnilibs
-
-  mkdir -p ${INSTALL_ALL}/src/main/${BUILD_TYPE_EXT}/jnilibs
-  cp -av install/sdk/native/libs/ ${INSTALL_ALL}/src/main/${BUILD_TYPE_EXT}/jnilibs
-  cp -av install/sdk/native/libs/ ${INSTALL_DIR}/src/main/jnilibs
-
   # scrub all .a library files
-  find ${INSTALL_ALL}* -name *.a | xargs -n 1 -t rm
   find ${INSTALL_DIR}* -name *.a | xargs -n 1 -t rm
 
-  #mkdir -p $1/src/main/${BUILD_TYPE_EXT}/jni
-  #cp -av install/sdk/native/jni/include $1/src/main/${BUILD_TYPE_EXT}/jni
+  cp -av $BUILD_ROOT/platforms/android/template/opencv-lib/* ${INSTALL_DIR}
+  cp -av android_sdk/bin/aidl ${INSTALL_DIR}/src/main
+  cp -av bin/AndroidManifest.xml ${INSTALL_DIR}/src/main
+
+  # jnilibs, java, jni
+  mkdir -p ${INSTALL_DIR}/src/main/jnilibs
+  cp -av install/sdk/native/libs/ ${INSTALL_DIR}/src/main/jnilibs
   cp -av install/sdk/native/jni/include ${INSTALL_DIR}/src/main/jni
-
-  mkdir -p ${INSTALL_ALL}/src/main/${BUILD_TYPE_EXT}/java
-  cp -av install/sdk/java/src/ ${INSTALL_ALL}/src/main/${BUILD_TYPE_EXT}/java
-
   cp -av install/sdk/java/src/ ${INSTALL_DIR}/src/main/java
   cp -av install/sdk/java/res ${INSTALL_DIR}/src/main
   cp -av install/sdk/java/AndroidManifest.xml ${INSTALL_DIR}/src/main
-  cp -av install/sdk/java/lint.xml ${INSTALL_DIR}
   set -e
 }
 
