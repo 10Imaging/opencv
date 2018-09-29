@@ -89,6 +89,16 @@ namespace cv {
                 return init_val;
             }
 
+            std::string getParamS(const std::map<std::string, std::string> &params, const std::string param_name, std::string init_val)
+            {
+                std::map<std::string, std::string>::const_iterator it = params.find(param_name);
+                if (it != params.end()) {
+                    std::stringstream ss(it->second);
+                    init_val = ss.str();
+                }
+                return init_val;
+            }
+
             static const std::string kFirstLayerName = "data";
 
             class setLayersParams {
@@ -546,7 +556,7 @@ namespace cv {
                         int pad = getParam<int>(layer_params, "pad", 0);
                         int stride = getParam<int>(layer_params, "stride", 1);
                         int filters = getParam<int>(layer_params, "filters", -1);
-                        std::string activation = getParam<std::string>(layer_params, "activation", "linear");
+                        std::string activation = getParamS(layer_params, "activation", "linear");
                         bool batch_normalize = getParam<int>(layer_params, "batch_normalize", 0) == 1;
                         if(activation != "linear" && activation != "leaky")
                             CV_Error(cv::Error::StsParseError, "Unsupported activation: " + activation);
@@ -585,7 +595,7 @@ namespace cv {
                     }
                     else if (layer_type == "route")
                     {
-                        std::string bottom_layers = getParam<std::string>(layer_params, "layers", "");
+                        std::string bottom_layers = getParamS(layer_params, "layers", "");
                         CV_Assert(!bottom_layers.empty());
                         std::vector<int> layers_vec = getNumbers<int>(bottom_layers);
 
@@ -615,9 +625,9 @@ namespace cv {
                         int num_of_anchors = getParam<int>(layer_params, "num", -1);
                         int classfix = getParam<int>(layer_params, "classfix", 0);
                         bool softmax = (getParam<int>(layer_params, "softmax", 0) == 1);
-                        bool softmax_tree = (getParam<std::string>(layer_params, "tree", "").size() > 0);
+                        bool softmax_tree = (getParamS(layer_params, "tree", "").size() > 0);
 
-                        std::string anchors_values = getParam<std::string>(layer_params, "anchors", std::string());
+                        std::string anchors_values = getParamS(layer_params, "anchors", std::string());
                         CV_Assert(!anchors_values.empty());
                         std::vector<float> anchors_vec = getNumbers<float>(anchors_values);
 
@@ -628,7 +638,7 @@ namespace cv {
                     }
                     else if (layer_type == "shortcut")
                     {
-                        std::string bottom_layer = getParam<std::string>(layer_params, "from", "");
+                        std::string bottom_layer = getParamS(layer_params, "from", "");
                         CV_Assert(!bottom_layer.empty());
                         int from = std::atoi(bottom_layer.c_str());
 
@@ -647,11 +657,11 @@ namespace cv {
                         int classes = getParam<int>(layer_params, "classes", -1);
                         int num_of_anchors = getParam<int>(layer_params, "num", -1);
 
-                        std::string anchors_values = getParam<std::string>(layer_params, "anchors", std::string());
+                        std::string anchors_values = getParamS(layer_params, "anchors", std::string());
                         CV_Assert(!anchors_values.empty());
                         std::vector<float> anchors_vec = getNumbers<float>(anchors_values);
 
-                        std::string mask_values = getParam<std::string>(layer_params, "mask", std::string());
+                        std::string mask_values = getParamS(layer_params, "mask", std::string());
                         CV_Assert(!mask_values.empty());
                         std::vector<int> mask_vec = getNumbers<int>(mask_values);
 
@@ -706,7 +716,7 @@ namespace cv {
                     {
                         int kernel_size = getParam<int>(layer_params, "size", -1);
                         int filters = getParam<int>(layer_params, "filters", -1);
-                        std::string activation = getParam<std::string>(layer_params, "activation", "linear");
+                        std::string activation = getParamS(layer_params, "activation", "linear");
                         bool use_batch_normalize = getParam<int>(layer_params, "batch_normalize", 0) == 1;
 
                         CV_Assert(kernel_size > 0 && filters > 0);
