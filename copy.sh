@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [ "${1}" == "dropbox" ]; THEN
+if [ "${1}" == "dropbox" ]; then
   [ -d ${HOME}/Dropbox ] && DBX=${HOME}/Dropbox/Downloads/opencv/${HOSTNAME}
   [ -z ${DBX} ] && echo "Dropbox not found. Please install Dropbox at "${HOME}/Dropbox && exit 1
   cp -av install.android.debug ${DBX}
