@@ -3,8 +3,9 @@
 if [ "${1}" == "dropbox" ]; then
   [ -d ${HOME}/Dropbox ] && DBX=${HOME}/Dropbox/Downloads/opencv/${HOSTNAME}
   [ -z ${DBX} ] && echo "Dropbox not found. Please install Dropbox at "${HOME}/Dropbox && exit 1
-  cp -av install.android.debug ${DBX}
-  cp -av install.android.release ${DBX}
+  echo Copying debug and release build to Dropbox at ${DBX}
+  cp -a install.android.debug ${DBX}
+  cp -a install.android.release ${DBX}
   cp copy.sh ${DBX}/install.android.debug
   cp copy.sh ${DBX}/install.android.release
 else
@@ -20,7 +21,7 @@ else
       echo Copying from Dropbox
       cp -a ${SCRIPT_PATH}/src/main/* ~/10imaging/iris/opencv/src/main
     else
-      echo Copying from build
+      echo Copying ${BUILD_TYPE} from build
       cp -a ${SCRIPT_PATH}/install.android.${BUILD_TYPE}/src/main/* ~/10imaging/iris/opencv/src/main
     fi
   else
