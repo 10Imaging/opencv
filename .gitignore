@@ -28,6 +28,7 @@ build.gradle
 /install*
 downloads/
 cmake-build-*
+.DS_Store
 
 # Created by https://www.gitignore.io/api/intellij
 
