@@ -1,9 +1,11 @@
 #!/bin/bash
 
 if [ "${1}" == "dropbox" ]; then
-  [ -d ${HOME}/Dropbox ] && DBX=${HOME}/Dropbox/Downloads/opencv/${HOSTNAME}
-  [ -z ${DBX} ] && echo "Dropbox not found. Please install Dropbox at "${HOME}/Dropbox && exit 1
+  DATE_STAMP=`date +%Y-%m-%d`
+  [ -d ${HOME}/Dropbox/Downloads ] && DBX=${HOME}/Dropbox/Downloads/opencv/${HOSTNAME}/${DATE_STAMP}
+  [ -z ${DBX} ] && echo "Dropbox not found. Please install Dropbox at "${HOME}/Dropbox" and include Downloads directory." && exit 1
   echo Copying debug and release build to Dropbox at ${DBX}
+  [ ! -d ${DBX} ] && mkdir -p ${DBX}
   cp -a install.android.debug ${DBX}
   cp -a install.android.release ${DBX}
   cp copy.sh ${DBX}/install.android.debug
