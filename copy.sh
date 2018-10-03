@@ -16,7 +16,7 @@ else
   SCRIPT_PATH=`dirname $SCRIPT_FILEPATH`
   [[ ${SCRIPT_FILEPATH} == **install.android.debug** ]] && BUILD_TYPE=debug
   [[ ${SCRIPT_FILEPATH} == **install.android.release** ]] && BUILD_TYPE=release
-  [[ ${1} == debug || ${1} == release ]] && BUILD_TYPE=${1}
+  [[ ${1} == debug || ${1} == release ]] && BUILD_TYPE=${1} || BUILD_TYPE=release
   if [[ ${BUILD_TYPE} == debug || ${BUILD_TYPE} == release ]]; then
     rm -rf ~/10imaging/iris/opencv/src/main/*
     if [[ ${SCRIPT_PATH} =~ .*install.android.${BUILD_TYPE} ]] ; then
