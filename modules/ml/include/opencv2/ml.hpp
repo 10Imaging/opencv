@@ -239,7 +239,18 @@ public:
     /** @brief Returns vector of symbolic names captured in loadFromCSV() */
     CV_WRAP void getNames(std::vector<String>& names) const;
 
-    CV_WRAP static Mat getSubVector(const Mat& vec, const Mat& idx);
+    /** @brief Extract from 1D vector elements specified by passed indexes.
+    @param vec input vector (supported types: CV_32S, CV_32F, CV_64F)
+    @param idx 1D index vector
+     */
+    static CV_WRAP Mat getSubVector(const Mat& vec, const Mat& idx);
+
+    /** @brief Extract from matrix rows/cols specified by passed indexes.
+    @param matrix input matrix (supported types: CV_32S, CV_32F, CV_64F)
+    @param idx 1D index vector
+    @param layout specifies to extract rows (cv::ml::ROW_SAMPLES) or to extract columns (cv::ml::COL_SAMPLES)
+     */
+    static CV_WRAP Mat getSubMatrix(const Mat& matrix, const Mat& idx, int layout);
 
     /** @brief Reads the dataset from a .csv file and returns the ready-to-use training data.
 
@@ -318,7 +329,7 @@ public:
     /** @brief Returns the number of variables in training samples */
     CV_WRAP virtual int getVarCount() const = 0;
 
-    CV_WRAP virtual bool empty() const;
+    CV_WRAP virtual bool empty() const CV_OVERRIDE;
 
     /** @brief Returns true if the model is trained */
     CV_WRAP virtual bool isTrained() const = 0;
@@ -894,7 +905,7 @@ public:
     posterior probabilities for each sample from the input
     @param flags This parameter will be ignored
      */
-    CV_WRAP virtual float predict( InputArray samples, OutputArray results=noArray(), int flags=0 ) const = 0;
+    CV_WRAP virtual float predict( InputArray samples, OutputArray results=noArray(), int flags=0 ) const CV_OVERRIDE = 0;
 
     /** @brief Returns a likelihood logarithm value and an index of the most probable mixture component
     for the given sample.
@@ -1656,7 +1667,7 @@ public:
     @param results Predicted labels as a column matrix of type CV_32S.
     @param flags Not used.
      */
-    CV_WRAP virtual float predict( InputArray samples, OutputArray results=noArray(), int flags=0 ) const = 0;
+    CV_WRAP virtual float predict( InputArray samples, OutputArray results=noArray(), int flags=0 ) const CV_OVERRIDE = 0;
 
     /** @brief This function returns the trained parameters arranged across rows.
 

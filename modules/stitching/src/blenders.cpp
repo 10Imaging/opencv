@@ -74,7 +74,6 @@ Ptr<Blender> Blender::createDefault(int type, bool try_gpu)
     if (type == MULTI_BAND)
         return makePtr<MultiBandBlender>(try_gpu);
     CV_Error(Error::StsBadArg, "unsupported blending method");
-    return Ptr<Blender>();
 }
 
 
@@ -128,12 +127,9 @@ void Blender::blend(InputOutputArray dst, InputOutputArray dst_mask)
     UMat mask;
     compare(dst_mask_, 0, mask, CMP_EQ);
     dst_.setTo(Scalar::all(0), mask);
-    mask.release();
-
     dst.assign(dst_);
-    dst_.release();
-
     dst_mask.assign(dst_mask_);
+    dst_.release();
     dst_mask_.release();
 }
 
@@ -225,6 +221,7 @@ MultiBandBlender::MultiBandBlender(int try_gpu, int num_bands, int weight_type)
 
 #if defined(HAVE_OPENCV_CUDAARITHM) && defined(HAVE_OPENCV_CUDAWARPING)
     can_use_gpu_ = try_gpu && cuda::getCudaEnabledDeviceCount();
+    gpu_feed_idx_ = 0;
 #else
     (void) try_gpu;
     can_use_gpu_ = false;
@@ -252,6 +249,15 @@ void MultiBandBlender::prepare(Rect dst_roi)
 #if defined(HAVE_OPENCV_CUDAARITHM) && defined(HAVE_OPENCV_CUDAWARPING)
     if (can_use_gpu_)
     {
+        gpu_initialized_ = false;
+        gpu_feed_idx_ = 0;
+
+        gpu_tl_points_.clear();
+        gpu_weight_pyr_gauss_vec_.clear();
+        gpu_src_pyr_laplace_vec_.clear();
+        gpu_ups_.clear();
+        gpu_imgs_with_border_.clear();
+
         gpu_dst_pyr_laplace_.resize(num_bands_ + 1);
         gpu_dst_pyr_laplace_[0].create(dst_roi.size(), CV_16SC3);
         gpu_dst_pyr_laplace_[0].setTo(Scalar::all(0));
@@ -324,7 +330,37 @@ void MultiBandBlender::feed(InputArray _img, InputArray mask, Point tl)
     int64 t = getTickCount();
 #endif
 
-    UMat img = _img.getUMat();
+    UMat img;
+
+#if defined(HAVE_OPENCV_CUDAARITHM) && defined(HAVE_OPENCV_CUDAWARPING)
+    // If using gpu save the top left coordinate when running first time after prepare
+    if (can_use_gpu_)
+    {
+        if (!gpu_initialized_)
+        {
+            gpu_tl_points_.push_back(tl);
+        }
+        else
+        {
+            tl = gpu_tl_points_[gpu_feed_idx_];
+        }
+    }
+    // If _img is not a GpuMat get it as UMat from the InputArray object.
+    // If it is GpuMat make a dummy object with right dimensions but no data and
+    // get _img as a GpuMat
+    if (!_img.isGpuMat())
+#endif
+    {
+        img = _img.getUMat();
+    }
+#if defined(HAVE_OPENCV_CUDAARITHM) && defined(HAVE_OPENCV_CUDAWARPING)
+    else
+    {
+        gpu_img_ = _img.getGpuMat();
+        img = UMat(gpu_img_.rows, gpu_img_.cols, gpu_img_.type());
+    }
+#endif
+
     CV_Assert(img.type() == CV_16SC3 || img.type() == CV_8UC3);
     CV_Assert(mask.type() == CV_8U);
 
@@ -361,42 +397,63 @@ void MultiBandBlender::feed(InputArray _img, InputArray mask, Point tl)
 #if defined(HAVE_OPENCV_CUDAARITHM) && defined(HAVE_OPENCV_CUDAWARPING)
     if (can_use_gpu_)
     {
+        if (!gpu_initialized_)
+        {
+            gpu_imgs_with_border_.push_back(cuda::GpuMat());
+            gpu_weight_pyr_gauss_vec_.push_back(std::vector<cuda::GpuMat>(num_bands_+1));
+            gpu_src_pyr_laplace_vec_.push_back(std::vector<cuda::GpuMat>(num_bands_+1));
+            gpu_ups_.push_back(std::vector<cuda::GpuMat>(num_bands_));
+        }
+
+        // If _img is not GpuMat upload it to gpu else gpu_img_ was set already
+        if (!_img.isGpuMat())
+        {
+            gpu_img_.upload(img);
+        }
+
         // Create the source image Laplacian pyramid
-        cuda::GpuMat gpu_img;
-        gpu_img.upload(img);
-        cuda::GpuMat img_with_border;
-        cuda::copyMakeBorder(gpu_img, img_with_border, top, bottom, left, right, BORDER_REFLECT);
-        std::vector<cuda::GpuMat> gpu_src_pyr_laplace(num_bands_ + 1);
-        img_with_border.convertTo(gpu_src_pyr_laplace[0], CV_16S);
+        cuda::copyMakeBorder(gpu_img_, gpu_imgs_with_border_[gpu_feed_idx_], top, bottom,
+                             left, right, BORDER_REFLECT);
+        gpu_imgs_with_border_[gpu_feed_idx_].convertTo(gpu_src_pyr_laplace_vec_[gpu_feed_idx_][0], CV_16S);
         for (int i = 0; i < num_bands_; ++i)
-            cuda::pyrDown(gpu_src_pyr_laplace[i], gpu_src_pyr_laplace[i + 1]);
+            cuda::pyrDown(gpu_src_pyr_laplace_vec_[gpu_feed_idx_][i],
+                          gpu_src_pyr_laplace_vec_[gpu_feed_idx_][i + 1]);
         for (int i = 0; i < num_bands_; ++i)
         {
-            cuda::GpuMat up;
-            cuda::pyrUp(gpu_src_pyr_laplace[i + 1], up);
-            cuda::subtract(gpu_src_pyr_laplace[i], up, gpu_src_pyr_laplace[i]);
+            cuda::pyrUp(gpu_src_pyr_laplace_vec_[gpu_feed_idx_][i + 1], gpu_ups_[gpu_feed_idx_][i]);
+            cuda::subtract(gpu_src_pyr_laplace_vec_[gpu_feed_idx_][i],
+                           gpu_ups_[gpu_feed_idx_][i],
+                           gpu_src_pyr_laplace_vec_[gpu_feed_idx_][i]);
         }
 
-        // Create the weight map Gaussian pyramid
-        cuda::GpuMat gpu_mask;
-        gpu_mask.upload(mask);
-        cuda::GpuMat weight_map;
-        std::vector<cuda::GpuMat> gpu_weight_pyr_gauss(num_bands_ + 1);
+        // Create the weight map Gaussian pyramid only if not yet initialized
+        if (!gpu_initialized_)
+        {
+            if (mask.isGpuMat())
+            {
+                gpu_mask_ = mask.getGpuMat();
+            }
+            else
+            {
+                gpu_mask_.upload(mask);
+            }
 
-        if (weight_type_ == CV_32F)
-        {
-            gpu_mask.convertTo(weight_map, CV_32F, 1. / 255.);
+            if (weight_type_ == CV_32F)
+            {
+                gpu_mask_.convertTo(gpu_weight_map_, CV_32F, 1. / 255.);
+            }
+            else // weight_type_ == CV_16S
+            {
+                gpu_mask_.convertTo(gpu_weight_map_, CV_16S);
+                cuda::compare(gpu_mask_, 0, gpu_add_mask_, CMP_NE);
+                cuda::add(gpu_weight_map_, Scalar::all(1), gpu_weight_map_, gpu_add_mask_);
+            }
+            cuda::copyMakeBorder(gpu_weight_map_, gpu_weight_pyr_gauss_vec_[gpu_feed_idx_][0], top,
+                                 bottom, left, right, BORDER_CONSTANT);
+            for (int i = 0; i < num_bands_; ++i)
+                cuda::pyrDown(gpu_weight_pyr_gauss_vec_[gpu_feed_idx_][i],
+                              gpu_weight_pyr_gauss_vec_[gpu_feed_idx_][i + 1]);
         }
-        else // weight_type_ == CV_16S
-        {
-            gpu_mask.convertTo(weight_map, CV_16S);
-            cuda::GpuMat add_mask;
-            cuda::compare(gpu_mask, 0, add_mask, CMP_NE);
-            cuda::add(weight_map, Scalar::all(1), weight_map, add_mask);
-        }
-        cuda::copyMakeBorder(weight_map, gpu_weight_pyr_gauss[0], top, bottom, left, right, BORDER_CONSTANT);
-        for (int i = 0; i < num_bands_; ++i)
-            cuda::pyrDown(gpu_weight_pyr_gauss[i], gpu_weight_pyr_gauss[i + 1]);
 
         int y_tl = tl_new.y - dst_roi_.y;
         int y_br = br_new.y - dst_roi_.y;
@@ -407,9 +464,9 @@ void MultiBandBlender::feed(InputArray _img, InputArray mask, Point tl)
         for (int i = 0; i <= num_bands_; ++i)
         {
             Rect rc(x_tl, y_tl, x_br - x_tl, y_br - y_tl);
-            cuda::GpuMat &_src_pyr_laplace = gpu_src_pyr_laplace[i];
+            cuda::GpuMat &_src_pyr_laplace = gpu_src_pyr_laplace_vec_[gpu_feed_idx_][i];
             cuda::GpuMat _dst_pyr_laplace = gpu_dst_pyr_laplace_[i](rc);
-            cuda::GpuMat &_weight_pyr_gauss = gpu_weight_pyr_gauss[i];
+            cuda::GpuMat &_weight_pyr_gauss = gpu_weight_pyr_gauss_vec_[gpu_feed_idx_][i];
             cuda::GpuMat _dst_band_weights = gpu_dst_band_weights_[i](rc);
 
             using namespace cv::cuda::device::blend;
@@ -424,6 +481,7 @@ void MultiBandBlender::feed(InputArray _img, InputArray mask, Point tl)
             x_tl /= 2; y_tl /= 2;
             x_br /= 2; y_br /= 2;
         }
+        ++gpu_feed_idx_;
         return;
     }
 #endif
@@ -432,21 +490,13 @@ void MultiBandBlender::feed(InputArray _img, InputArray mask, Point tl)
     UMat img_with_border;
     copyMakeBorder(_img, img_with_border, top, bottom, left, right,
                    BORDER_REFLECT);
-    img.release();
-
     LOGLN("  Add border to the source image, time: " << ((getTickCount() - t) / getTickFrequency()) << " sec");
 #if ENABLE_LOG
     t = getTickCount();
 #endif
 
     std::vector<UMat> src_pyr_laplace;
-    if (can_use_gpu_ && img_with_border.depth() == CV_16S)
-        createLaplacePyrGpu(img_with_border, num_bands_, src_pyr_laplace);
-    else
-        createLaplacePyr(img_with_border, num_bands_, src_pyr_laplace);
-    img_with_border.release();
-
-    img_with_border.release();
+    createLaplacePyr(img_with_border, num_bands_, src_pyr_laplace);
 
     LOGLN("  Create the source image Laplacian pyramid, time: " << ((getTickCount() - t) / getTickFrequency()) << " sec");
 #if ENABLE_LOG
@@ -457,7 +507,7 @@ void MultiBandBlender::feed(InputArray _img, InputArray mask, Point tl)
     UMat weight_map;
     std::vector<UMat> weight_pyr_gauss(num_bands_ + 1);
 
-    if(weight_type_ == CV_32F)
+    if (weight_type_ == CV_32F)
     {
         mask.getUMat().convertTo(weight_map, CV_32F, 1./255.);
     }
@@ -470,7 +520,6 @@ void MultiBandBlender::feed(InputArray _img, InputArray mask, Point tl)
     }
 
     copyMakeBorder(weight_map, weight_pyr_gauss[0], top, bottom, left, right, BORDER_CONSTANT);
-    weight_map.release();
 
     for (int i = 0; i < num_bands_; ++i)
         pyrDown(weight_pyr_gauss[i], weight_pyr_gauss[i + 1]);
@@ -499,7 +548,7 @@ void MultiBandBlender::feed(InputArray _img, InputArray mask, Point tl)
             Mat _dst_pyr_laplace = dst_pyr_laplace_[i](rc).getMat(ACCESS_RW);
             Mat _weight_pyr_gauss = weight_pyr_gauss[i].getMat(ACCESS_READ);
             Mat _dst_band_weights = dst_band_weights_[i](rc).getMat(ACCESS_RW);
-            if(weight_type_ == CV_32F)
+            if (weight_type_ == CV_32F)
             {
                 for (int y = 0; y < rc.height; ++y)
                 {
@@ -553,21 +602,15 @@ void MultiBandBlender::feed(InputArray _img, InputArray mask, Point tl)
 
 void MultiBandBlender::blend(InputOutputArray dst, InputOutputArray dst_mask)
 {
-    cv::UMat dst_band_weights_0;
     Rect dst_rc(0, 0, dst_roi_final_.width, dst_roi_final_.height);
-    compare(dst_band_weights_[0](dst_rc), WEIGHT_EPS, dst_mask, CMP_GT);
-    dst_band_weights_.clear();
-
-    //Instead of calling Blender::blend(dst, dst_mask); perform code inline in order to avoid memory intensive copies
-    dst.assign(dst_pyr_laplace_[0](dst_rc));
-    dst_pyr_laplace_.clear();
-    UMat mask;
-    compare(dst_mask, 0, mask, CMP_EQ);
-    dst.setTo(Scalar::all(0), mask);
-
 #if defined(HAVE_OPENCV_CUDAARITHM) && defined(HAVE_OPENCV_CUDAWARPING)
     if (can_use_gpu_)
     {
+        if (!gpu_initialized_)
+        {
+            gpu_ups_.push_back(std::vector<cuda::GpuMat>(num_bands_+1));
+        }
+
         for (int i = 0; i <= num_bands_; ++i)
         {
             cuda::GpuMat dst_i = gpu_dst_pyr_laplace_[i];
@@ -587,36 +630,65 @@ void MultiBandBlender::blend(InputOutputArray dst, InputOutputArray dst_mask)
         // Restore image from Laplacian pyramid
         for (size_t i = num_bands_; i > 0; --i)
         {
-            cuda::GpuMat up;
-            cuda::pyrUp(gpu_dst_pyr_laplace_[i], up);
-            cuda::add(up, gpu_dst_pyr_laplace_[i - 1], gpu_dst_pyr_laplace_[i - 1]);
+            cuda::pyrUp(gpu_dst_pyr_laplace_[i], gpu_ups_[gpu_ups_.size()-1][num_bands_-i]);
+            cuda::add(gpu_ups_[gpu_ups_.size()-1][num_bands_-i],
+                      gpu_dst_pyr_laplace_[i - 1],
+                      gpu_dst_pyr_laplace_[i - 1]);
         }
 
-        gpu_dst_pyr_laplace_[0](dst_rc).download(dst_);
-        gpu_dst_band_weights_[0].download(dst_band_weights_0);
+        // If dst is GpuMat do masking on gpu and return dst as a GpuMat
+        // else download the image to cpu and return it as an ordinary Mat
+        if (dst.isGpuMat())
+        {
+            cuda::GpuMat &gpu_dst = dst.getGpuMatRef();
 
-        gpu_dst_pyr_laplace_.clear();
-        gpu_dst_band_weights_.clear();
+            cuda::compare(gpu_dst_band_weights_[0](dst_rc), WEIGHT_EPS, gpu_dst_mask_, CMP_GT);
+
+            cuda::compare(gpu_dst_mask_, 0, gpu_mask_, CMP_EQ);
+
+            gpu_dst_pyr_laplace_[0](dst_rc).setTo(Scalar::all(0), gpu_mask_);
+            gpu_dst_pyr_laplace_[0](dst_rc).convertTo(gpu_dst, CV_16S);
+
+        }
+        else
+        {
+            gpu_dst_pyr_laplace_[0](dst_rc).download(dst_);
+            Mat dst_band_weights_0;
+            gpu_dst_band_weights_[0].download(dst_band_weights_0);
+
+            compare(dst_band_weights_0(dst_rc), WEIGHT_EPS, dst_mask_, CMP_GT);
+            Blender::blend(dst, dst_mask);
+        }
+
+        // Set destination Mats to 0 so new image can be blended
+        for (size_t i = 0; i < (size_t)(num_bands_ + 1); ++i)
+        {
+            gpu_dst_band_weights_[i].setTo(0);
+            gpu_dst_pyr_laplace_[i].setTo(Scalar::all(0));
+        }
+        gpu_feed_idx_ = 0;
+        gpu_initialized_ = true;
     }
     else
 #endif
     {
+        cv::UMat dst_band_weights_0;
+
         for (int i = 0; i <= num_bands_; ++i)
             normalizeUsingWeightMap(dst_band_weights_[i], dst_pyr_laplace_[i]);
 
         restoreImageFromLaplacePyr(dst_pyr_laplace_);
 
-    Rect dst_rc(0, 0, dst_roi_final_.width, dst_roi_final_.height);
-    compare(dst_band_weights_[0](dst_rc), WEIGHT_EPS, dst_mask, CMP_GT);
-    dst_band_weights_.clear();
+        dst_ = dst_pyr_laplace_[0](dst_rc);
+        dst_band_weights_0 = dst_band_weights_[0];
 
-    //Instead of calling Blender::blend(dst, dst_mask); perform code inline in order to avoid memory intensive copies
-    dst.assign(dst_pyr_laplace_[0](dst_rc));
-    dst_pyr_laplace_.clear();
+        dst_pyr_laplace_.clear();
+        dst_band_weights_.clear();
 
-    UMat mask;
-    compare(dst_mask, 0, mask, CMP_EQ);
-    dst.setTo(Scalar::all(0), mask);
+        compare(dst_band_weights_0(dst_rc), WEIGHT_EPS, dst_mask_, CMP_GT);
+
+        Blender::blend(dst, dst_mask);
+    }
 }
 
 

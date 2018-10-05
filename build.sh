@@ -83,12 +83,12 @@ function build_platform ()
     COMMON_OPTIONS="-DENABLE_NEON=ON -DWITH_TBB=ON -DBUILD_TBB=ON -DWITH_CUDA=OFF\
      -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DENABLE_PRECOMPILED_HEADERS=OFF -DBUILD_ANDROID_EXAMPLES=OFF\
      -DINSTALL_ANDROID_EXAMPLES=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF\
-     -DANDROID_NATIVE_API_LEVEL=21 -DANDROID_SDK_TARGET=21 -DNDK_CCACHE=ccache -DANDROID_STL=gnustl_shared\
+     -DANDROID_NATIVE_API_LEVEL=21 -DANDROID_SDK_TARGET=21 -DNDK_CCACHE=ccache -DANDROID_STL=c++_shared\
      -DWITH_WEBP=OFF -DOPENCV_EXTRA_MODULES_PATH=${BUILD_ROOT}/../opencv_contrib/modules\
-     -DCMAKE_TOOLCHAIN_FILE=${BUILD_ROOT}/platforms/android/android.toolchain.cmake"
+     -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK}/build/cmake/android.toolchain.cmake -DANDROID_TOOLCHAIN=clang"
 #     -DCMAKE_CXX_FLAGS_DEBUG=-fdebug-prefix-map=${HOME}=~\
 #     -DCMAKE_C_FLAGS_DEBUG=-fdebug-prefix-map=${HOME}=~"
-    EXTRA_OPTIONS="-DWITH_OPENCL=${ENABLE_OPENCL} -DANDROID_TOOLCHAIN_NAME=arm-linux-androideabi-4.9"
+    EXTRA_OPTIONS="-DWITH_OPENCL=${ENABLE_OPENCL}"
     build_target "build/android/debug/arm7" Debug $TARGET_ABI $TARGET_PLATFORM
     build_target "build/android/release/arm7" Release $TARGET_ABI $TARGET_PLATFORM
     shift
@@ -97,12 +97,12 @@ function build_platform ()
     COMMON_OPTIONS="-DENABLE_NEON=ON -DWITH_TBB=ON -DBUILD_TBB=ON -DWITH_CUDA=OFF\
      -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DENABLE_PRECOMPILED_HEADERS=OFF -DBUILD_ANDROID_EXAMPLES=OFF\
      -DINSTALL_ANDROID_EXAMPLES=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF\
-     -DANDROID_NATIVE_API_LEVEL=21 -DANDROID_SDK_TARGET=21 -DNDK_CCACHE=ccache -DANDROID_STL=gnustl_shared\
+     -DANDROID_NATIVE_API_LEVEL=21 -DANDROID_SDK_TARGET=21 -DNDK_CCACHE=ccache -DANDROID_STL=c++_shared\
      -DWITH_WEBP=OFF -DOPENCV_EXTRA_MODULES_PATH=${BUILD_ROOT}/../opencv_contrib/modules\
-     -DCMAKE_TOOLCHAIN_FILE=${BUILD_ROOT}/platforms/android/android.toolchain.cmake"
+     -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK}/build/cmake/android.toolchain.cmake -DANDROID_TOOLCHAIN=clang"
 #     -DCMAKE_CXX_FLAGS_DEBUG=-fdebug-prefix-map=${HOME}=~\
 #     -DCMAKE_C_FLAGS_DEBUG=-fdebug-prefix-map=${HOME}=~"
-    EXTRA_OPTIONS="-DWITH_OPENCL=${ENABLE_OPENCL} -DANDROID_TOOLCHAIN_NAME=aarch64-linux-android-4.9"
+    EXTRA_OPTIONS="-DWITH_OPENCL=${ENABLE_OPENCL}"
     build_target "build/android/debug/arm8" Debug $TARGET_ABI $TARGET_PLATFORM
     build_target "build/android/release/arm8" Release $TARGET_ABI $TARGET_PLATFORM
     shift
@@ -175,33 +175,20 @@ function install_library ()
   #[ -d install/sdk/native/3rdparty/libs/armeabi-v7a ] && rm -rf install/sdk/native/3rdparty/libs/armeabi-v7a
   #[ -d install/sdk/native/3rdparty/libs/armeabi-v7a-hard ] && mv install/sdk/native/3rdparty/libs/armeabi-v7a-hard install/sdk/native/3rdparty/libs/armeabi-v7a
 
-  cp -av $BUILD_ROOT/platforms/android/template/opencv-lib/* ${INSTALL_DIR}
-  cp -av lint.xml ${INSTALL_DIR}
-  cp -av bin/aidl ${INSTALL_DIR}/src/main
-  cp -av bin/AndroidManifest.xml ${INSTALL_DIR}/src/main
-
-  mkdir -p ${INSTALL_DIR}/src/main/jnilibs
-  #cp -av install/sdk/native/3rdparty/libs/* ${INSTALL_DIR}/src/main/jnilibs
-
-  mkdir -p ${INSTALL_ALL}/src/main/${BUILD_TYPE_EXT}/jnilibs
-  cp -av install/sdk/native/libs/ ${INSTALL_ALL}/src/main/${BUILD_TYPE_EXT}/jnilibs
-  cp -av install/sdk/native/libs/ ${INSTALL_DIR}/src/main/jnilibs
-
   # scrub all .a library files
-  find ${INSTALL_ALL}* -name *.a | xargs -n 1 -t rm
   find ${INSTALL_DIR}* -name *.a | xargs -n 1 -t rm
 
-  #mkdir -p $1/src/main/${BUILD_TYPE_EXT}/jni
-  #cp -av install/sdk/native/jni/include $1/src/main/${BUILD_TYPE_EXT}/jni
+  cp -av $BUILD_ROOT/platforms/android/template/opencv-lib/* ${INSTALL_DIR}
+  cp -av android_sdk/bin/aidl ${INSTALL_DIR}/src/main
+  cp -av bin/AndroidManifest.xml ${INSTALL_DIR}/src/main
+
+  # jnilibs, java, jni
+  mkdir -p ${INSTALL_DIR}/src/main/jnilibs
+  cp -av install/sdk/native/libs/ ${INSTALL_DIR}/src/main/jnilibs
   cp -av install/sdk/native/jni/include ${INSTALL_DIR}/src/main/jni
-
-  mkdir -p ${INSTALL_ALL}/src/main/${BUILD_TYPE_EXT}/java
-  cp -av install/sdk/java/src/ ${INSTALL_ALL}/src/main/${BUILD_TYPE_EXT}/java
-
   cp -av install/sdk/java/src/ ${INSTALL_DIR}/src/main/java
   cp -av install/sdk/java/res ${INSTALL_DIR}/src/main
   cp -av install/sdk/java/AndroidManifest.xml ${INSTALL_DIR}/src/main
-  cp -av install/sdk/java/lint.xml ${INSTALL_DIR}
   set -e
 }
 

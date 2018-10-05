@@ -19,8 +19,8 @@ Source Code
 -----------
 
 Use a universal sample for object detection models written
-[in C++](https://github.com/opencv/opencv/blob/master/samples/dnn/object_detection.cpp) and
-[in Python](https://github.com/opencv/opencv/blob/master/samples/dnn/object_detection.py) languages
+[in C++](https://github.com/opencv/opencv/blob/3.4/samples/dnn/object_detection.cpp) and
+[in Python](https://github.com/opencv/opencv/blob/3.4/samples/dnn/object_detection.py) languages
 
 Usage examples
 --------------
@@ -29,7 +29,7 @@ Execute in webcam:
 
 @code{.bash}
 
-$ example_dnn_object_detection --config=[PATH-TO-DARKNET]/cfg/yolo.cfg --model=[PATH-TO-DARKNET]/yolo.weights --classes=object_detection_classes_pascal_voc.txt --width=416 --height=416 --scale=0.00392
+$ example_dnn_object_detection --config=[PATH-TO-DARKNET]/cfg/yolo.cfg --model=[PATH-TO-DARKNET]/yolo.weights --classes=object_detection_classes_pascal_voc.txt --width=416 --height=416 --scale=0.00392 --rgb
 
 @endcode
 
@@ -37,7 +37,7 @@ Execute with image or video file:
 
 @code{.bash}
 
-$ example_dnn_object_detection --config=[PATH-TO-DARKNET]/cfg/yolo.cfg --model=[PATH-TO-DARKNET]/yolo.weights --classes=object_detection_classes_pascal_voc.txt --width=416 --height=416 --scale=0.00392 --input=[PATH-TO-IMAGE-OR-VIDEO-FILE]
+$ example_dnn_object_detection --config=[PATH-TO-DARKNET]/cfg/yolo.cfg --model=[PATH-TO-DARKNET]/yolo.weights --classes=object_detection_classes_pascal_voc.txt --width=416 --height=416 --scale=0.00392 --input=[PATH-TO-IMAGE-OR-VIDEO-FILE] --rgb
 
 @endcode
 

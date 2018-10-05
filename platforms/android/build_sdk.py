@@ -18,7 +18,7 @@ def execute(cmd, shell=False):
         log.info('Executing: ' + ' '.join(cmd))
         retcode = subprocess.call(cmd, shell=shell)
         if retcode < 0:
-            raise Fail("Child was terminated by signal:" %s -retcode)
+            raise Fail("Child was terminated by signal: %s" % -retcode)
         elif retcode > 0:
             raise Fail("Child returned: %s" % retcode)
     except OSError as e:
@@ -106,9 +106,13 @@ class ABI:
         self.cmake_vars = dict(
             ANDROID_STL="gnustl_static",
             ANDROID_ABI=self.name,
-            ANDROID_TOOLCHAIN_NAME=toolchain,
             ANDROID_PLATFORM_ID=platform_id,
         )
+        if toolchain is not None:
+            self.cmake_vars['ANDROID_TOOLCHAIN_NAME'] = toolchain
+        else:
+            self.cmake_vars['ANDROID_TOOLCHAIN'] = 'clang'
+            self.cmake_vars['ANDROID_STL'] = 'c++_static'
         if ndk_api_level:
             self.cmake_vars['ANDROID_NATIVE_API_LEVEL'] = ndk_api_level
         self.cmake_vars.update(cmake_vars)
@@ -117,15 +121,7 @@ class ABI:
     def haveIPP(self):
         return self.name == "x86" or self.name == "x86_64"
 
-ABIs = [
-#    ABI("1", "armeabi",     "arm-linux-androideabi-4.8"),
-    ABI("2",  "armeabi-v7a", "arm-linux-androideabi-4.8", cmake_name="armeabi-v7a with NEON"),
-    ABI("3",  "arm64-v8a",   "aarch64-linux-android-4.9")
-#    ABI("5", "x86_64",      "x86_64-4.9"),
-#    ABI("4", "x86",         "x86-4.8"),
-#    ABI("7", "mips64",      "mips64el-linux-android-4.9"),
-#    ABI("6", "mips",        "mipsel-linux-android-4.8")
-]
+#===================================================================================================
 
 class Builder:
     def __init__(self, workdir, opencvdir, config):
@@ -164,31 +160,22 @@ class Builder:
             rm_one(d)
 
     def build_library(self, abi, do_install):
-        cmd = [
-            "cmake",
-            "-GUnix Makefiles",
-            "-DCMAKE_TOOLCHAIN_FILE='%s'" % self.get_toolchain_file(),
-            "-DWITH_OPENCL=ON",
-            "-DENABLE_NEON=ON",
-            "-DENABLE_VFPV3=OFF",
-            "-DWITH_CUDA=OFF",
-            "-DWITH_IPP=%s" % ("ON" if abi.haveIPP() else "OFF"),
-            "-DBUILD_EXAMPLES=OFF",
-            "-DBUILD_TESTS=OFF",
-            "-DBUILD_PERF_TESTS=OFF",
-            "-DBUILD_DOCS=OFF",
-            "-DBUILD_ANDROID_EXAMPLES=OFF",
-            "-DINSTALL_ANDROID_EXAMPLES=OFF",
-            "-DANDROID_STL=gnustl_static",
-            "-DANDROID_NATIVE_API_LEVEL=21",
-            "-DANDROID_SDK_TARGET=21",
-            "-DANDROID_ABI='%s'" % abi.cmake_name,
-            "-DWITH_TBB=ON",
-            "-DANDROID_TOOLCHAIN_NAME=%s" % abi.toolchain
-        ]
+        cmd = ["cmake", "-GNinja"]
+        cmake_vars = dict(
+            CMAKE_TOOLCHAIN_FILE=self.get_toolchain_file(),
+            WITH_OPENCL="OFF",
+            WITH_IPP=("ON" if abi.haveIPP() else "OFF"),
+            WITH_TBB="ON",
+            BUILD_EXAMPLES="OFF",
+            BUILD_TESTS="OFF",
+            BUILD_PERF_TESTS="OFF",
+            BUILD_DOCS="OFF",
+            BUILD_ANDROID_EXAMPLES="ON",
+            INSTALL_ANDROID_EXAMPLES="ON",
+        )
 
-        if self.extra_modules_path is not None:
-            cmd.append("-DOPENCV_EXTRA_MODULES_PATH='%s'" % self.extra_modules_path)
+        if self.config.extra_modules_path is not None:
+            cmd.append("-DOPENCV_EXTRA_MODULES_PATH='%s'" % self.config.extra_modules_path)
 
         if self.use_ccache == True:
             cmd.append("-DNDK_CCACHE=ccache")
@@ -200,27 +187,20 @@ class Builder:
         cmd.append(self.opencvdir)
         execute(cmd)
         if do_install:
-            execute(["make","-j2"])
+            execute(["ninja"])
             for c in ["libs", "dev", "java", "samples"]:
                 execute(["cmake", "-DCOMPONENT=%s" % c, "-P", "cmake_install.cmake"])
         else:
-            execute(["make", "install/strip"])
+            execute(["ninja", "install/strip"])
 
     def build_engine(self, abi, engdest):
-        cmd = [
-            "cmake",
-            "-GUnix Makefiles",
-            "-DCMAKE_TOOLCHAIN_FILE='%s'" % self.get_toolchain_file(),
-            "-DANDROID_ABI='%s'" % abi.cmake_name,
-            "-DBUILD_ANDROID_SERVICE=ON",
-            "-DANDROID_PLATFORM_ID=%s" % abi.platform_id,
-            "-DWITH_CUDA=OFF",
-            "-DWITH_OPENCL=ON",
-            "-DENABLE_NEON=ON",
-            "-DENABLE_VFPV3=ON",
-            "-DWITH_IPP=OFF",
-            self.opencvdir
-        ]
+        cmd = ["cmake", "-GNinja"]
+        cmake_vars = dict(
+            CMAKE_TOOLCHAIN_FILE=self.get_toolchain_file(),
+            WITH_OPENCL="OFF",
+            WITH_IPP="OFF",
+            BUILD_ANDROID_SERVICE = 'ON'
+        )
         cmake_vars.update(abi.cmake_vars)
         cmd += [ "-D%s='%s'" % (k, v) for (k, v) in cmake_vars.items() if v is not None]
         cmd.append(self.opencvdir)
@@ -230,7 +210,7 @@ class Builder:
         # Add extra data
         apkxmldest = check_dir(os.path.join(apkdest, "res", "xml"), create=True)
         apklibdest = check_dir(os.path.join(apkdest, "libs", abi.name), create=True)
-        for ver, d in self.extra_packs + [("3.4.1", os.path.join(self.libdest, "lib"))]:
+        for ver, d in self.extra_packs + [("3.4.3", os.path.join(self.libdest, "lib"))]:
             r = ET.Element("library", attrib={"version": ver})
             log.info("Adding libraries from %s", d)
 
@@ -247,10 +227,7 @@ class Builder:
                 log.info("Generating XML config: %s", xmlname)
                 ET.ElementTree(r).write(xmlname, encoding="utf-8")
 
-        execute(["make", "opencv_engine"])
-        # TODO make Android Studio Library
-        # TODO make Android Studio Examples
-        # TODO fix win32 security hazard
+        execute(["ninja", "opencv_engine"])
         execute(["ant", "-f", os.path.join(apkdest, "build.xml"), "debug"],
             shell=(sys.platform == 'win32'))
         # TODO: Sign apk
@@ -305,12 +282,12 @@ class Builder:
                 shutil.move(f, dst)
 
         # Clean samples
-#        path = os.path.join(self.resultdest, "samples")
-#        for item in os.listdir(path):
-#            item = os.path.join(path, item)
-#            if os.path.isdir(item):
-#                for name in ["build.xml", "local.properties", "proguard-project.txt"]:
-#                    rm_one(os.path.join(item, name))
+        path = os.path.join(self.resultdest, "samples")
+        for item in os.listdir(path):
+            item = os.path.join(path, item)
+            if os.path.isdir(item):
+                for name in ["build.xml", "local.properties", "proguard-project.txt"]:
+                    rm_one(os.path.join(item, name))
 
 
 #===================================================================================================
@@ -344,6 +321,12 @@ if __name__ == "__main__":
     if os.path.realpath(args.work_dir) == os.path.realpath(args.opencv_dir):
         raise Fail("Specify workdir (building from OpenCV source directory is not supported)")
 
+    # Relative paths become invalid in sub-directories
+    if args.opencv_dir is not None and not os.path.isabs(args.opencv_dir):
+        args.opencv_dir = os.path.abspath(args.opencv_dir)
+    if args.extra_modules_path is not None and not os.path.isabs(args.extra_modules_path):
+        args.extra_modules_path = os.path.abspath(args.extra_modules_path)
+
     cpath = args.config
     if not os.path.exists(cpath):
         cpath = os.path.join(SCRIPT_DIR, cpath)
@@ -356,6 +339,7 @@ if __name__ == "__main__":
     print(cfg.strip())
     print('=' * 80)
 
+    ABIs = None  # make flake8 happy
     exec(compile(cfg, cpath, 'exec'))
 
     log.info("Android NDK path: %s", os.environ["ANDROID_NDK"])
@@ -376,7 +360,7 @@ if __name__ == "__main__":
 
     engines = []
     for i, abi in enumerate(ABIs):
-        do_install = (i <= 3)
+        do_install = (i == 0)
         engdest = check_dir(os.path.join(builder.workdir, "build_service_%s" % abi.name), create=True, clean=True)
 
         log.info("=====")

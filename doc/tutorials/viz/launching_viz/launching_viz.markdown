@@ -14,7 +14,7 @@ In this tutorial you will learn how to
 Code
 ----
 
-You can download the code from [here ](https://github.com/opencv/opencv/tree/master/samples/cpp/tutorial_code/viz/launching_viz.cpp).
+You can download the code from [here ](https://github.com/opencv/opencv/tree/3.4/samples/cpp/tutorial_code/viz/launching_viz.cpp).
 @include samples/cpp/tutorial_code/viz/launching_viz.cpp
 
 Explanation
@@ -37,7 +37,7 @@ Here is the general structure of the program:
     the same with **myWindow**. If the name does not exist, a new window is created.
     @code{.cpp}
     /// Access window via its name
-    viz::Viz3d sameWindow = viz::get("Viz Demo");
+    viz::Viz3d sameWindow = viz::getWindowByName("Viz Demo");
     @endcode
 -   Start a controlled event loop. Once it starts, **wasStopped** is set to false. Inside the while
     loop, in each iteration, **spinOnce** is called to prevent event loop from completely stopping.

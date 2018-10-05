@@ -42,8 +42,8 @@
 
 #include "../precomp.hpp"
 #include "layers_common.hpp"
-#include "op_halide.hpp"
-#include "op_inf_engine.hpp"
+#include "../op_halide.hpp"
+#include "../op_inf_engine.hpp"
 #include "opencv2/core/hal/hal.hpp"
 #include "opencv2/core/hal/intrin.hpp"
 #include <iostream>
@@ -79,14 +79,36 @@ public:
                   adjustPad.height < stride.height);
     }
 
-    virtual bool supportBackend(int backendId)
+    virtual bool supportBackend(int backendId) CV_OVERRIDE
     {
-        return backendId == DNN_BACKEND_DEFAULT ||
-               backendId == DNN_BACKEND_HALIDE && haveHalide() ||
-               backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine();
+#ifdef HAVE_INF_ENGINE
+        if (backendId == DNN_BACKEND_INFERENCE_ENGINE)
+        {
+            if (type == "Convolution")
+                return preferableTarget != DNN_TARGET_MYRIAD || dilation.width == dilation.height;
+            else
+            {
+                CV_Assert(type == "Deconvolution");
+                const int outGroupCn = blobs[0].size[1];  // Weights are in IOHW layout
+                const int group = numOutput / outGroupCn;
+                if (group != 1)
+                {
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R3)
+                    return preferableTarget == DNN_TARGET_CPU;
+#endif
+                    return false;
+                }
+                if (preferableTarget == DNN_TARGET_OPENCL || preferableTarget == DNN_TARGET_OPENCL_FP16)
+                    return dilation.width == 1 && dilation.height == 1;
+                return true;
+            }
+        }
+        else
+#endif  // HAVE_INF_ENGINE
+            return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE;
     }
 
-    void finalize(const std::vector<Mat*> &inputs, std::vector<Mat> &outputs)
+    void finalize(const std::vector<Mat*> &inputs, std::vector<Mat> &outputs) CV_OVERRIDE
     {
         CV_Assert(inputs.size() > 0);
 
@@ -94,7 +116,7 @@ public:
         CV_Assert(blobs[0].dims == 4 && blobs[0].size[3] == kernel.width && blobs[0].size[2] == kernel.height);
 
         const Mat &input = *inputs[0];
-        CV_Assert(input.dims == 4 && (input.type() == CV_32F || input.type() == CV_64F));
+        CV_Assert(input.dims == 4 && (input.type() == CV_32F || input.type() == CV_64F || input.type() == CV_16S));
         for (size_t i = 0; i < inputs.size(); i++)
         {
             CV_Assert(inputs[i]->type() == input.type());
@@ -123,7 +145,7 @@ public:
     virtual void applyHalideScheduler(Ptr<BackendNode>& node,
                                       const std::vector<Mat*> &inputs,
                                       const std::vector<Mat> &outputs,
-                                      int targetId) const
+                                      int targetId) const CV_OVERRIDE
     {
 #ifdef HAVE_HALIDE
         if (targetId != DNN_TARGET_CPU)
@@ -165,36 +187,37 @@ public:
 #define IS_POWER_LAYER(layer) \
             (!layer.empty() && !layer->type.compare("Power"))
 //TODO: simultaneously convolution and bias addition for cache optimization
-class ConvolutionLayerImpl : public BaseConvolutionLayerImpl
+class ConvolutionLayerImpl CV_FINAL : public BaseConvolutionLayerImpl
 {
 public:
     enum { VEC_ALIGN = 8, DFT_TYPE = CV_32F };
-    Mat weightsMat, weightsMat_doubles;
+    Mat weightsMat;
+    std::vector<double> weightsMultipliers;
     std::vector<float> biasvec;
     std::vector<float> reluslope;
     Ptr<ActivationLayer> activ;
+    bool newWeightAndBias;
+    bool fusedBias;
 
 #ifdef HAVE_OPENCL
     Ptr<OCL4DNNConvSpatial<float> > convolutionOp;
     std::vector<UMat> umat_blobs;
-    bool fusedBias;
-    bool newWeightAndBias;
     bool newActiv;
     ocl4dnnFusedActiv_t activType;
     float power;
 #endif
     ConvolutionLayerImpl(const LayerParams &params) : BaseConvolutionLayerImpl(params)
     {
-#ifdef HAVE_OPENCL
-        fusedBias = false;
         newWeightAndBias = false;
+        fusedBias = false;
+#ifdef HAVE_OPENCL
         newActiv = false;
         activType = OCL4DNN_CONV_FUSED_ACTIV_NONE;
         power = 0.f;
 #endif
     }
 
-    MatShape computeColRowShape(const MatShape &inpShape, const MatShape &outShape) const
+    MatShape computeColRowShape(const MatShape &inpShape, const MatShape &outShape) const CV_OVERRIDE
     {
         Size out(outShape[3], outShape[2]);
         int inpGroupCn = blobs[0].size[1];
@@ -205,7 +228,7 @@ public:
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
                          const int requiredOutputs,
                          std::vector<MatShape> &outputs,
-                         std::vector<MatShape> &internals) const
+                         std::vector<MatShape> &internals) const CV_OVERRIDE
     {
         CV_Assert(blobs.size() != 0);
         CV_Assert(!hasBias() || blobs[1].total() == (size_t)blobs[0].size[0]);
@@ -234,12 +257,12 @@ public:
         CV_Assert(ngroups > 0 && inpCn % ngroups == 0 && outCn % ngroups == 0);
 
         int dims[] = {inputs[0][0], outCn, out.height, out.width};
-        outputs.resize(inputs.size(), shape(dims));
+        outputs.resize(inputs.size(), shape(dims, 4));
 
         return false;
     }
 
-    virtual void finalize(const std::vector<Mat*> &inputs, std::vector<Mat> &outputs)
+    virtual void finalize(const std::vector<Mat*> &inputs, std::vector<Mat> &outputs) CV_OVERRIDE
     {
         BaseConvolutionLayerImpl::finalize(inputs, outputs);
 
@@ -259,7 +282,7 @@ public:
             wm = wm_aligned;
         }
         weightsMat = wm;
-        weightsMat.convertTo(weightsMat_doubles, CV_64F);
+        weightsMultipliers.assign(outCn, 1.0);
 
         Mat biasMat = hasBias() ? blobs[1].reshape(1, outCn) : Mat();
         biasvec.resize(outCn+2);
@@ -278,8 +301,11 @@ public:
 #endif
     }
 
-    bool setActivation(const Ptr<ActivationLayer>& layer)
+    bool setActivation(const Ptr<ActivationLayer>& layer) CV_OVERRIDE
     {
+        if (!activ.empty() && !layer.empty())
+            return false;
+
         activ = layer;
         if (activ.empty())
             reluslope.clear();
@@ -287,7 +313,7 @@ public:
         newActiv = true;
         activType = OCL4DNN_CONV_FUSED_ACTIV_NONE;
 
-        if (preferableTarget == DNN_TARGET_OPENCL)
+        if (IS_DNN_OPENCL_TARGET(preferableTarget))
         {
             Ptr<PowerLayer> activ_power = activ.dynamicCast<PowerLayer>();
             if (!activ_power.empty())
@@ -312,7 +338,7 @@ public:
         return !activ.empty();
     }
 
-    virtual bool tryFuse(Ptr<Layer>& top)
+    virtual bool tryFuse(Ptr<Layer>& top) CV_OVERRIDE
     {
         Mat w, b;
         top->getScaleShift(w, b);
@@ -330,18 +356,19 @@ public:
         // (conv(I) + b1 ) * w + b2
         // means to replace convolution's weights to [w*conv(I)] and bias to [b1 * w + b2]
         const int outCn = weightsMat.size[0];
-        CV_Assert(!weightsMat.empty(), biasvec.size() == outCn + 2,
-                  w.empty() || outCn == w.total(), b.empty() || outCn == b.total());
+        CV_Assert_N(!weightsMat.empty(), biasvec.size() == outCn + 2,
+                    w.empty() || outCn == w.total(), b.empty() || outCn == b.total());
 
         if (!w.empty())
         {
+            Mat originWeights = blobs[0].reshape(1, outCn);
             for (int i = 0; i < outCn; ++i)
             {
                 double wi = w.at<float>(i);
-                cv::multiply(slice(weightsMat_doubles, i), wi, slice(weightsMat_doubles, i));
+                weightsMultipliers[i] *= wi;
+                cv::multiply(originWeights.row(i), weightsMultipliers[i], weightsMat.row(i));
                 biasvec[i] *= wi;
             }
-            weightsMat_doubles.convertTo(weightsMat, weightsMat.type());
         }
 
         if (!b.empty())
@@ -350,14 +377,12 @@ public:
                 biasvec[i] += b.at<float>(i);
         }
 
-#ifdef HAVE_OPENCL
         newWeightAndBias = !w.empty() || !b.empty();
         fusedBias = hasBias() || !b.empty();
-#endif
         biasvec[outCn] = biasvec[outCn+1] = biasvec[outCn-1];
     }
 
-    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &inputs)
+    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &inputs) CV_OVERRIDE
     {
 #ifdef HAVE_HALIDE
         Halide::Buffer<float> inputBuffer = halideBuffer(inputs[0]);
@@ -405,7 +430,7 @@ public:
         return Ptr<BackendNode>();
     }
 
-    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> > &inputs)
+    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> > &inputs) CV_OVERRIDE
     {
 #ifdef HAVE_INF_ENGINE
         InferenceEngine::DataPtr input = infEngineDataNode(inputs[0]);
@@ -433,9 +458,31 @@ public:
         ieLayer->_dilation_y = dilation.height;
         ieLayer->_group = group;
 
-        ieLayer->_weights = wrapToInfEngineBlob(blobs[0]);
-        if (hasBias())
-            ieLayer->_biases = wrapToInfEngineBlob(blobs[1]);
+        ieLayer->_weights = wrapToInfEngineBlob(blobs[0], InferenceEngine::Layout::OIHW);
+        if (newWeightAndBias)
+        {
+            if (weightsMat.isContinuous())
+            {
+                Mat fusedWeights = weightsMat.reshape(1, blobs[0].dims, blobs[0].size);
+                ieLayer->_weights = wrapToInfEngineBlob(fusedWeights, InferenceEngine::Layout::OIHW);
+            }
+            else
+            {
+                ieLayer->_weights = InferenceEngine::make_shared_blob<float>(
+                                    InferenceEngine::Precision::FP32, InferenceEngine::Layout::OIHW,
+                                    ieLayer->_weights->dims());
+                ieLayer->_weights->allocate();
+
+                Mat newWeights = infEngineBlobToMat(ieLayer->_weights).reshape(1, outCn);
+                Mat fusedWeights = weightsMat.colRange(0, newWeights.cols);
+                fusedWeights.copyTo(newWeights);
+            }
+        }
+        if (hasBias() || fusedBias)
+        {
+            Mat biasesMat({outCn}, CV_32F, &biasvec[0]);
+            ieLayer->_biases = wrapToInfEngineBlob(biasesMat, {(size_t)outCn}, InferenceEngine::Layout::C);
+        }
         return Ptr<BackendNode>(new InfEngineBackendNode(ieLayer));
 #endif  // HAVE_INF_ENGINE
         return Ptr<BackendNode>();
@@ -472,13 +519,14 @@ public:
                          Size kernel, Size pad, Size stride, Size dilation,
                          const ActivationLayer* activ, int ngroups, int nstripes )
         {
-            CV_Assert( input.dims == 4 && output.dims == 4,
+            CV_Assert_N(
+                       input.dims == 4 && output.dims == 4,
                        input.size[0] == output.size[0],
                        weights.rows == output.size[1],
                        weights.cols == (input.size[1]/ngroups)*kernel.width*kernel.height,
                        input.type() == output.type(),
                        input.type() == weights.type(),
-                       input.type() == CV_32F,
+                       input.type() == CV_32FC1,
                        input.isContinuous(),
                        output.isContinuous(),
                        biasvec.size() == (size_t)output.size[1]+2);
@@ -517,13 +565,13 @@ public:
             parallel_for_(Range(0, nstripes), p, nstripes);
         }
 
-        virtual void operator ()(const Range &r0) const
+        virtual void operator ()(const Range &r0) const CV_OVERRIDE
         {
             const int valign = ConvolutionLayerImpl::VEC_ALIGN;
             int ngroups = ngroups_, batchSize = input_->size[0]*ngroups;
             int outW = output_->size[3], outH = output_->size[2], outCn = output_->size[1]/ngroups;
             int width = input_->size[3], height = input_->size[2], inpCn = input_->size[1]/ngroups;
-            int nstripes = nstripes_;
+            const int nstripes = nstripes_;
             int kernel_w = kernel_.width, kernel_h = kernel_.height;
             int pad_w = pad_.width, pad_h = pad_.height;
             int stride_w = stride_.width, stride_h = stride_.height;
@@ -550,7 +598,6 @@ public:
                 int samplesPerStripe = std::max((batchSize + nstripes - 1)/nstripes, 1);
                 r.start *= samplesPerStripe;
                 r.end *= samplesPerStripe;
-                nstripes *= samplesPerStripe;
                 stripeSize = outPlaneSize;
             }
 
@@ -563,7 +610,7 @@ public:
             float* data_out0_ = output_->ptr<float>();
             size_t rowbufsz = (size_t)karea*BLK_SIZE_CN*BLK_SIZE;
             AutoBuffer<float> rowbuf0_(rowbufsz + valign);
-            float* rowbuf0 = alignPtr((float*)rowbuf0_, (int)(valign*sizeof(float)));
+            float* rowbuf0 = alignPtr(rowbuf0_.data(), (int)(valign*sizeof(float)));
 
             // we clear the buffer once; ultimately, it lets us to avoid
             // tail processing after running the unrolled/vectorized loop.
@@ -654,7 +701,7 @@ public:
                                         int j0 = std::max(0, (-in_j + dilation_w-1)/dilation_w);
                                         int j1 = std::min(kernel_w, (width - in_j + dilation_w-1)/dilation_w);
 
-                                        // here some non-continous sub-row of the row will not be
+                                        // here some non-continuous sub-row of the row will not be
                                         // filled from the tensor; we need to make sure that the uncovered
                                         // elements are explicitly set to 0's. the easiest way is to
                                         // set all the elements to 0's before the loop.
@@ -715,8 +762,9 @@ public:
 
                             if( relu )
                             {
-                                r0 = relu[i];
-                                r1 = relu[i+1];
+                                r0 = relu[i]; r1 = relu[i+1];
+                                if( i+1 >= outCn )
+                                    r1 = r0;
                             }
 
                             int j = 0;
@@ -820,12 +868,23 @@ public:
         std::vector<UMat> inputs;
         std::vector<UMat> outputs;
 
+        bool use_half = (inps.depth() == CV_16S);
         inps.getUMatVector(inputs);
         outs.getUMatVector(outputs);
 
         CV_Assert(outputs.size() == 1);
         for (int i = 0; i < inputs.size(); ++i)
             CV_Assert(inputs[i].u != outputs[0].u);
+
+        if (umat_blobs.empty())
+        {
+            size_t n = blobs.size();
+            umat_blobs.resize(n);
+            for (size_t i = 0; i < n; i++)
+            {
+                blobs[i].copyTo(umat_blobs[i]);
+            }
+        }
 
         if (convolutionOp.empty())
         {
@@ -838,6 +897,7 @@ public:
             config.dilation = dilation;
             config.group = inputs[0].size[1] / umat_blobs[0].size[1];
             config.bias_term = (hasBias()) ? true : false;
+            config.use_half = use_half;
 
             convolutionOp = Ptr<OCL4DNNConvSpatial<float> >(new OCL4DNNConvSpatial<float>(config));
         }
@@ -937,19 +997,18 @@ public:
     }
 #endif
 
-    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr)
+    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
 
-        CV_OCL_RUN((preferableTarget == DNN_TARGET_OPENCL) &&
-                   OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
+        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget),
                    forward_ocl(inputs_arr, outputs_arr, internals_arr))
 
         Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
     }
 
-    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals)
+    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
@@ -958,8 +1017,8 @@ public:
                name.c_str(), inputs[0]->size[0], inputs[0]->size[1], inputs[0]->size[2], inputs[0]->size[3],
                kernel.width, kernel.height, pad.width, pad.height,
                stride.width, stride.height, dilation.width, dilation.height);*/
-        CV_Assert(inputs.size() == (size_t)1, inputs[0]->size[1] % blobs[0].size[1] == 0,
-                  outputs.size() == 1, inputs[0]->data != outputs[0].data);
+        CV_Assert_N(inputs.size() == (size_t)1, inputs[0]->size[1] % blobs[0].size[1] == 0,
+                    outputs.size() == 1, inputs[0]->data != outputs[0].data);
 
         int ngroups = inputs[0]->size[1]/blobs[0].size[1];
         CV_Assert(outputs[0].size[1] % ngroups == 0);
@@ -993,7 +1052,7 @@ public:
     }
 
     virtual int64 getFLOPS(const std::vector<MatShape> &inputs,
-                           const std::vector<MatShape> &outputs) const
+                           const std::vector<MatShape> &outputs) const CV_OVERRIDE
     {
         CV_Assert(inputs.size() == outputs.size());
 
@@ -1007,7 +1066,7 @@ public:
     }
 };
 
-class DeConvolutionLayerImpl : public BaseConvolutionLayerImpl
+class DeConvolutionLayerImpl CV_FINAL : public BaseConvolutionLayerImpl
 {
 public:
     Mat weightsMat, biasesMat;
@@ -1016,7 +1075,7 @@ public:
 
     DeConvolutionLayerImpl(const LayerParams& params) : BaseConvolutionLayerImpl(params) {}
 
-    MatShape computeColRowShape(const MatShape &inpShape, const MatShape &outShape) const
+    MatShape computeColRowShape(const MatShape &inpShape, const MatShape &outShape) const CV_OVERRIDE
     {
         int inpCn = inpShape[1];
         int inpH = inpShape[2];
@@ -1031,7 +1090,7 @@ public:
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
                          const int requiredOutputs,
                          std::vector<MatShape> &outputs,
-                         std::vector<MatShape> &internals) const
+                         std::vector<MatShape> &internals) const CV_OVERRIDE
     {
         CV_Assert(!hasBias() || blobs[1].total() == (size_t)numOutput);
         CV_Assert(inputs.size() != 0);
@@ -1068,7 +1127,7 @@ public:
         CV_Assert(blobs[0].size[0] == inpCn);
 
         int dims[] = {inputs[0][0], outCn, outH, outW};
-        outputs.resize(inputs.size(), shape(dims));
+        outputs.resize(inputs.size(), shape(dims, 4));
 
         internals.push_back(MatShape());
         if (!is1x1())
@@ -1080,7 +1139,7 @@ public:
         return false;
     }
 
-    void finalize(const std::vector<Mat*> &inputs, std::vector<Mat> &outputs)
+    void finalize(const std::vector<Mat*> &inputs, std::vector<Mat> &outputs) CV_OVERRIDE
     {
         BaseConvolutionLayerImpl::finalize(inputs, outputs);
         getConvPoolPaddings(Size(outputs[0].size[3], outputs[0].size[2]),
@@ -1102,7 +1161,7 @@ public:
             useAVX512 = CV_CPU_HAS_SUPPORT_AVX512_SKX;
         }
 
-        void operator()(const Range& range_) const
+        void operator()(const Range& range_) const CV_OVERRIDE
         {
             int stripeSize = (int)alignSize((b_->cols + nstripes_ - 1)/nstripes_, 16);
             Range range(range_.start*stripeSize, std::min(range_.end*stripeSize, b_->cols));
@@ -1277,7 +1336,7 @@ public:
             parallel_for_(Range(0, nstripes), t, nstripes);
         }
 
-        virtual void operator ()(const Range &r) const
+        virtual void operator ()(const Range &r) const CV_OVERRIDE
         {
             const float* data_col_ = data_col;
             float* data_im_ = data_im;
@@ -1337,6 +1396,9 @@ public:
         std::vector<UMat> inputs;
         std::vector<UMat> outputs;
         std::vector<UMat> internals;
+
+        if (inputs_.depth() == CV_16S)
+            return false;
 
         inputs_.getUMatVector(inputs);
         outputs_.getUMatVector(outputs);
@@ -1423,19 +1485,19 @@ public:
     }
 #endif
 
-    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr)
+    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
 
-        CV_OCL_RUN((preferableTarget == DNN_TARGET_OPENCL) &&
+        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget) &&
                    OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
                    forward_ocl(inputs_arr, outputs_arr, internals_arr))
 
         Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
     }
 
-    void forward(std::vector<Mat *> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals)
+    void forward(std::vector<Mat *> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
@@ -1489,7 +1551,7 @@ public:
         }
     }
 
-    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &inputs)
+    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &inputs) CV_OVERRIDE
     {
 #ifdef HAVE_HALIDE
         Halide::Buffer<float> inputBuffer = halideBuffer(inputs[0]);
@@ -1542,8 +1604,41 @@ public:
         return Ptr<BackendNode>();
     }
 
+    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> > &) CV_OVERRIDE
+    {
+#ifdef HAVE_INF_ENGINE
+        const int outGroupCn = blobs[0].size[1];  // Weights are in IOHW layout
+        const int group = numOutput / outGroupCn;
+
+        InferenceEngine::LayerParams lp;
+        lp.name = name;
+        lp.type = "Deconvolution";
+        lp.precision = InferenceEngine::Precision::FP32;
+        std::shared_ptr<InferenceEngine::DeconvolutionLayer> ieLayer(new InferenceEngine::DeconvolutionLayer(lp));
+
+        ieLayer->_kernel_x = kernel.width;
+        ieLayer->_kernel_y = kernel.height;
+        ieLayer->_stride_x = stride.width;
+        ieLayer->_stride_y = stride.height;
+        ieLayer->_out_depth = numOutput;
+        ieLayer->_padding_x = pad.width;
+        ieLayer->_padding_y = pad.height;
+        ieLayer->_dilation_x = dilation.width;
+        ieLayer->_dilation_y = dilation.height;
+        ieLayer->_group = group;
+
+        ieLayer->_weights = wrapToInfEngineBlob(blobs[0], InferenceEngine::Layout::OIHW);
+        if (hasBias())
+        {
+            ieLayer->_biases = wrapToInfEngineBlob(blobs[1], {(size_t)numOutput}, InferenceEngine::Layout::C);
+        }
+        return Ptr<BackendNode>(new InfEngineBackendNode(ieLayer));
+#endif  // HAVE_INF_ENGINE
+        return Ptr<BackendNode>();
+    }
+
     virtual int64 getFLOPS(const std::vector<MatShape> &inputs,
-                           const std::vector<MatShape> &outputs) const
+                           const std::vector<MatShape> &outputs) const CV_OVERRIDE
     {
         CV_Assert(inputs.size() == outputs.size());
 
@@ -1562,14 +1657,6 @@ public:
 Ptr<BaseConvolutionLayer> ConvolutionLayer::create(const LayerParams &params)
 {
     Ptr<ConvolutionLayerImpl> l(new ConvolutionLayerImpl(params));
-
-#ifdef HAVE_OPENCL
-    size_t n = params.blobs.size();
-    l->umat_blobs.resize(n);
-    for (int i = 0; i < n; i++)
-        l->umat_blobs[i] = params.blobs[i].getUMat(ACCESS_READ);
-#endif
-
     return l;
 }
 

@@ -70,9 +70,7 @@ endif()
 
 ocv_install_example_src("." CMakeLists.txt)
 if(INSTALL_C_EXAMPLES)
-  install(DIRECTORY data
-          DESTINATION "${OPENCV_SAMPLES_SRC_INSTALL_PATH}/data"
-        COMPONENT samples_data)
+  install(DIRECTORY data DESTINATION "${OPENCV_SAMPLES_SRC_INSTALL_PATH}" COMPONENT samples_data)
 endif()
 
 else()
@@ -124,6 +122,8 @@ if(MSVC)
     set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /NODEFAULTLIB:libcmtd.lib")
   endif()
 endif()
+
+add_definitions(-DDISABLE_OPENCV_24_COMPATIBILITY=1)  # Avoid C-like legacy API
 
 add_subdirectory(cpp)
 if(WIN32)

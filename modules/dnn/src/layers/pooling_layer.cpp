@@ -43,8 +43,8 @@
 #include "../precomp.hpp"
 #include "layers_common.hpp"
 #include "opencv2/core/hal/intrin.hpp"
-#include "op_halide.hpp"
-#include "op_inf_engine.hpp"
+#include "../op_halide.hpp"
+#include "../op_inf_engine.hpp"
 #include <float.h>
 #include <algorithm>
 using std::max;
@@ -64,7 +64,7 @@ static inline int roundRoiSize(float v)
     return (int)(v + (v >= 0.f ? 0.5f : -0.5f));
 }
 
-class PoolingLayerImpl : public PoolingLayer
+class PoolingLayerImpl CV_FINAL : public PoolingLayer
 {
 public:
     PoolingLayerImpl(const LayerParams& params)
@@ -114,7 +114,7 @@ public:
     Ptr<OCL4DNNPool<float> > poolOp;
 #endif
 
-    void finalize(const std::vector<Mat*> &inputs, std::vector<Mat> &outputs)
+    void finalize(const std::vector<Mat*> &inputs, std::vector<Mat> &outputs) CV_OVERRIDE
     {
         CV_Assert(!inputs.empty());
 
@@ -133,12 +133,19 @@ public:
 #endif
     }
 
-    virtual bool supportBackend(int backendId)
+    virtual bool supportBackend(int backendId) CV_OVERRIDE
     {
-        return backendId == DNN_BACKEND_DEFAULT ||
-               backendId == DNN_BACKEND_HALIDE && haveHalide() &&
-               (type == MAX || type == AVE && !pad.width && !pad.height) ||
-               backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine() && (type == MAX || type == AVE);
+        if (backendId == DNN_BACKEND_INFERENCE_ENGINE)
+        {
+            if (preferableTarget == DNN_TARGET_MYRIAD)
+                return type == MAX || type == AVE;
+            else
+                return type != STOCHASTIC;
+        }
+        else
+            return backendId == DNN_BACKEND_OPENCV ||
+                   backendId == DNN_BACKEND_HALIDE && haveHalide() &&
+                   (type == MAX || type == AVE && !pad.width && !pad.height);
     }
 
 #ifdef HAVE_OPENCL
@@ -147,6 +154,7 @@ public:
         std::vector<UMat> inputs;
         std::vector<UMat> outputs;
 
+        bool use_half = (inps.depth() == CV_16S);
         inps.getUMatVector(inputs);
         outs.getUMatVector(outputs);
 
@@ -164,6 +172,8 @@ public:
                                 (type == AVE ? LIBDNN_POOLING_METHOD_AVE :
                                                LIBDNN_POOLING_METHOD_STO);
             config.avePoolPaddedArea = avePoolPaddedArea;
+            config.computeMaxIdx = computeMaxIdx;
+            config.use_half = use_half;
             poolOp = Ptr<OCL4DNNPool<float> >(new OCL4DNNPool<float>(config));
         }
 
@@ -184,19 +194,21 @@ public:
     }
 #endif
 
-    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr)
+    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
 
-        CV_OCL_RUN((preferableTarget == DNN_TARGET_OPENCL) &&
-                   OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
-                   forward_ocl(inputs_arr, outputs_arr, internals_arr))
+        if (type == MAX || type == AVE || type == STOCHASTIC)
+        {
+            CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget),
+                       forward_ocl(inputs_arr, outputs_arr, internals_arr))
+        }
 
         Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
     }
 
-    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals)
+    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
@@ -204,15 +216,15 @@ public:
         switch (type)
         {
             case MAX:
-                CV_Assert(inputs.size() == 1, outputs.size() == 2);
+                CV_Assert_N(inputs.size() == 1, outputs.size() == 2);
                 maxPooling(*inputs[0], outputs[0], outputs[1]);
                 break;
             case AVE:
-                CV_Assert(inputs.size() == 1, outputs.size() == 1);
+                CV_Assert_N(inputs.size() == 1, outputs.size() == 1);
                 avePooling(*inputs[0], outputs[0]);
                 break;
             case ROI: case PSROI:
-                CV_Assert(inputs.size() == 2, outputs.size() == 1);
+                CV_Assert_N(inputs.size() == 2, outputs.size() == 1);
                 roiPooling(*inputs[0], *inputs[1], outputs[0]);
                 break;
             default:
@@ -221,7 +233,7 @@ public:
         }
     }
 
-    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &inputs)
+    virtual Ptr<BackendNode> initHalide(const std::vector<Ptr<BackendWrapper> > &inputs) CV_OVERRIDE
     {
         if (type == MAX)
             return initMaxPoolingHalide(inputs);
@@ -231,27 +243,46 @@ public:
             return Ptr<BackendNode>();
     }
 
-    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&)
+    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&) CV_OVERRIDE
     {
 #ifdef HAVE_INF_ENGINE
         InferenceEngine::LayerParams lp;
         lp.name = name;
-        lp.type = "Pooling";
         lp.precision = InferenceEngine::Precision::FP32;
-        std::shared_ptr<InferenceEngine::PoolingLayer> ieLayer(new InferenceEngine::PoolingLayer(lp));
 
-        ieLayer->_kernel_x = kernel.width;
-        ieLayer->_kernel_y = kernel.height;
-        ieLayer->_stride_x = stride.width;
-        ieLayer->_stride_y = stride.height;
-        ieLayer->_padding_x = pad.width;
-        ieLayer->_padding_y = pad.height;
-        ieLayer->_exclude_pad = type == AVE && padMode == "SAME";
-        ieLayer->params["rounding-type"] = ceilMode ? "ceil" : "floor";
-        if (type == MAX)
-            ieLayer->_type = InferenceEngine::PoolingLayer::PoolType::MAX;
-        else if (type == AVE)
-            ieLayer->_type = InferenceEngine::PoolingLayer::PoolType::AVG;
+        std::shared_ptr<InferenceEngine::CNNLayer> ieLayer;
+        if (type == MAX || type == AVE)
+        {
+            lp.type = "Pooling";
+            InferenceEngine::PoolingLayer* poolLayer = new InferenceEngine::PoolingLayer(lp);
+            poolLayer->_kernel_x = kernel.width;
+            poolLayer->_kernel_y = kernel.height;
+            poolLayer->_stride_x = stride.width;
+            poolLayer->_stride_y = stride.height;
+            poolLayer->_padding_x = pad.width;
+            poolLayer->_padding_y = pad.height;
+            poolLayer->_exclude_pad = type == AVE && padMode == "SAME";
+            poolLayer->params["rounding-type"] = ceilMode ? "ceil" : "floor";
+            poolLayer->_type = type == MAX ? InferenceEngine::PoolingLayer::PoolType::MAX :
+                                             InferenceEngine::PoolingLayer::PoolType::AVG;
+            ieLayer = std::shared_ptr<InferenceEngine::CNNLayer>(poolLayer);
+        }
+        else if (type == ROI)
+        {
+            lp.type = "ROIPooling";
+            ieLayer = std::shared_ptr<InferenceEngine::CNNLayer>(new InferenceEngine::CNNLayer(lp));
+            ieLayer->params["pooled_w"] = format("%d", pooledSize.width);
+            ieLayer->params["pooled_h"] = format("%d", pooledSize.height);
+            ieLayer->params["spatial_scale"] = format("%f", spatialScale);
+        }
+        else if (type == PSROI)
+        {
+            lp.type = "PSROIPooling";
+            ieLayer = std::shared_ptr<InferenceEngine::CNNLayer>(new InferenceEngine::CNNLayer(lp));
+            ieLayer->params["output_dim"] = format("%d", psRoiOutChannels);
+            ieLayer->params["group_size"] = format("%d", pooledSize.width);
+            ieLayer->params["spatial_scale"] = format("%f", spatialScale);
+        }
         else
             CV_Error(Error::StsNotImplemented, "Unsupported pooling type");
 
@@ -280,7 +311,8 @@ public:
                         Size stride, Size pad, bool avePoolPaddedArea, int poolingType, float spatialScale,
                         bool computeMaxIdx, int nstripes)
         {
-            CV_Assert(src.isContinuous(), dst.isContinuous(),
+            CV_Assert_N(
+                      src.isContinuous(), dst.isContinuous(),
                       src.type() == CV_32F, src.type() == dst.type(),
                       src.dims == 4, dst.dims == 4,
                       ((poolingType == ROI || poolingType == PSROI) && dst.size[0] ==rois.size[0] || src.size[0] == dst.size[0]),
@@ -313,7 +345,7 @@ public:
             parallel_for_(Range(0, nstripes), p, nstripes);
         }
 
-        void operator()(const Range& r) const
+        void operator()(const Range& r) const CV_OVERRIDE
         {
             int channels = dst->size[1], width = dst->size[3], height = dst->size[2];
             int inp_width = src->size[3], inp_height = src->size[2];
@@ -752,7 +784,7 @@ public:
     virtual void applyHalideScheduler(Ptr<BackendNode>& node,
                                       const std::vector<Mat*> &inputs,
                                       const std::vector<Mat> &outputs,
-                                      int targetId) const
+                                      int targetId) const CV_OVERRIDE
     {
 #ifdef  HAVE_HALIDE
         if (targetId != DNN_TARGET_CPU)
@@ -801,7 +833,7 @@ public:
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
                          const int requiredOutputs,
                          std::vector<MatShape> &outputs,
-                         std::vector<MatShape> &internals) const
+                         std::vector<MatShape> &internals) const CV_OVERRIDE
     {
         CV_Assert(inputs.size() != 0);
         Size in(inputs[0][3], inputs[0][2]), out;
@@ -853,12 +885,12 @@ public:
             dims[0] = inputs[1][0];  // Number of proposals;
             dims[1] = psRoiOutChannels;
         }
-        outputs.assign(type == MAX ? 2 : 1, shape(dims));
+        outputs.assign(type == MAX ? 2 : 1, shape(dims, 4));
         return false;
     }
 
     virtual int64 getFLOPS(const std::vector<MatShape> &inputs,
-                           const std::vector<MatShape> &outputs) const
+                           const std::vector<MatShape> &outputs) const CV_OVERRIDE
     {
         (void)inputs; // suppress unused variable warning
         long flops = 0;
