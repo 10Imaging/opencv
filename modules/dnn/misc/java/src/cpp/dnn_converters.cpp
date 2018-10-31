@@ -3,7 +3,7 @@
 // of this distribution and at http://opencv.org/license.html
 
 // Author: abratchik
-
+#define LOG_TAG "dnn"
 #include "dnn_converters.hpp"
 
 
