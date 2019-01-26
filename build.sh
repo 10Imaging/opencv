@@ -1,12 +1,71 @@
-#!/bin/bash -e
+#!/bin/bash
 
+## Defaults
+OPENCV_BUILD_VERSION=3.4.5
+BUILD_ANDROID=0
+BUILD_PC=1
+ANDROID_BUILD_ABIS="arm7-android arm8-android"
+PC_BUILD_ABIS="x64-ubuntu x64-osx"
 SCRIPT_FILEPATH="$(cd "$(dirname "$0")"; pwd)/$(basename "$0")"
 OPENCV_PATH=`dirname $SCRIPT_FILEPATH`
+PWD=$(pwd)
 
-[ -z ${ANDROID_NDK} ] && echo "ANDROID_NDK must be defined." && exit 1
+## Configuration
+git checkout $OPENCV_BUILD_VERSION
+[ $? != 0 ] && echo "OpenCV version ${OPENCV_BUILD_VERSION} does not exist in current repo." && exit 1
+[ -z ${ANDROID_NDK} ] && echo "ANDROID_NDK must be defined to build android targets." && BUILD_ANDROID=0
 
-# defaults
-BUILD_ABIS="arm7-android arm8-android"
+function dependencies() {
+if [[ "$OSTYPE" == *linux* ]] ; then
+  ## Dependencies
+  sudo apt -y remove x264 libx264-dev
+  sudo apt -y install build-essential checkinstall cmake pkg-config yasm
+  sudo apt -y install git gfortran
+  sudo apt -y install libjpeg8-dev libjasper-dev libpng12-dev
+  sudo apt -y install libtiff5-dev
+  sudo apt -y install libtiff-dev
+  sudo apt -y install libavcodec-dev libavformat-dev libswscale-dev libdc1394-22-dev
+  sudo apt -y install libxine2-dev libv4l-dev
+  pushd /usr/include/linux
+  sudo ln -s -f ../libv4l1-videodev.h videodev.h
+  popd
+  sudo apt -y install libgstreamer0.10-dev libgstreamer-plugins-base0.10-dev
+  sudo apt -y install libgtk2.0-dev libtbb-dev qt5-default
+  sudo apt -y install libatlas-base-dev
+  sudo apt -y install libfaac-dev libmp3lame-dev libtheora-dev
+  sudo apt -y install libvorbis-dev libxvidcore-dev
+  sudo apt -y install libopencore-amrnb-dev libopencore-amrwb-dev
+  sudo apt -y install libavresample-dev
+  sudo apt -y install x264 v4l-utils
+
+  # Optional dependencies
+  sudo apt -y install libprotobuf-dev protobuf-compiler
+  sudo apt -y install libgoogle-glog-dev libgflags-dev
+  sudo apt -y install libgphoto2-dev libeigen3-dev libhdf5-dev doxygen
+
+  # Python dependencies
+  sudo apt -y install python3-dev python3-pip python3-venv
+  sudo -H pip3 install -U pip numpy
+  sudo apt -y install python3-testresources
+
+  # Python virtual environment
+  if [ ! -d OpenCV-"$OPENCV_BUILD_VERSION"-py3 ]; then
+  python3 -m venv OpenCV-"$OPENCV_BUILD_VERSION"-py3
+  echo "# Virtual Environment Wrapper" >> ~/.bashrc
+  echo "alias enable-opencv-$OPENCV_BUILD_VERSION=\"source $PWD/OpenCV-$OPENCV_BUILD_VERSION-py3/bin/activate\"" >> ~/.bashrc
+  source $PWD/OpenCV-"$OPENCV_BUILD_VERSION"-py3/bin/activate
+  # install python libraries within this virtual environment
+  # using mulitple passes to avoid errors
+  pip install wheel numpy
+  pip install scipy matplotlib scikit-image scikit-learn
+  pip install ipython dlib
+  # quit virtual environment
+  deactivate
+  fi
+elif [[ "$OSTYPE" == *darwin* ]] ; then
+  $(shell brew update)
+fi
+}
 
 function main ()
 {
@@ -37,7 +96,7 @@ function main ()
       shift
       ;;
       -t=*|--targets=*)
-      BUILD_ABIS="${i#*=}"
+      ANDROID_BUILD_ABIS="${i#*=}"
       shift
       ;;
       -l=*|--lib=*)
@@ -60,11 +119,11 @@ function main ()
   done
 
   echo "INSTALL_PATH=${INSTALL_PATH}"
-  echo "BUILD_ABIS=${BUILD_ABIS}"
+  echo "ANDROID_BUILD_ABIS=${ANDROID_BUILD_ABIS}"
   echo "ANDROID_NDK"=${ANDROID_NDK}
 
   [ ! -d ${INSTALL_PATH} ] && mkdir -p ${INSTALL_PATH}
-  [[ -n "${BUILD_ABIS}" ]] && build_platform ${BUILD_ABIS}
+  [[ -n "${ANDROID_BUILD_ABIS}" ]] && build_platform ${ANDROID_BUILD_ABIS}
   popd
 }
 
@@ -107,14 +166,17 @@ function build_platform ()
     build_target "build/android/release/arm8" Release $TARGET_ABI $TARGET_PLATFORM
     shift
     ;;
-    x86_64-osx)
-    COMMON_OPTIONS="-DWITH_TBB=ON -DBUILD_TBB=ON -DWITH_CUDA=OFF\
-     -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DENABLE_PRECOMPILED_HEADERS=OFF\
-     -DWITH_WEBP=OFF -DOPENCV_EXTRA_MODULES_PATH=${BUILD_ROOT}/../opencv_contrib/modules\
+    x64-osx)
+    cmake -DWITH_TBB=ON -DWITH_QT=ON -DWITH_OPENGL=ON -DWITH_CUDA=ON -DWITH_OPENCL=OFF -DENABLE_PRECOMPILED_HEADERS=OFF -DQt5_DIR=$(brew --prefix qt5)/lib/cmake/Qt5 ..
+    #-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON
+    COMMON_OPTIONS="-DWITH_QT=ON -DWITH_TBB=ON -DWITH_CUDA=OFF \
+     -DWITH_OPENGL=ON -DWITH_OPENCL=OFF -DENABLE_PRECOMPILED_HEADERS=OFF \
+     -DOPENCV_EXTRA_MODULES_PATH=${BUILD_ROOT}/../opencv_contrib/modules \
+     -DQt5_DIR=$(brew --prefix qt5)/lib/cmake/Qt5 \
      -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF"
-    EXTRA_OPTIONS="-DWITH_OPENCL=${ENABLE_OPENCL}"
-    build_target "build/osx/debug/x86_64/opencv" Debug $TARGET_ABI $TARGET_PLATFORM
-    build_target "build/osx/release/x86_64/opencv" Release $TARGET_ABI $TARGET_PLATFORM
+    EXTRA_OPTIONS=""
+    build_target "build/osx/debug/x64/opencv" Debug $TARGET_ABI $TARGET_PLATFORM
+    build_target "build/osx/release/x64/opencv" Release $TARGET_ABI $TARGET_PLATFORM
     shift
     ;;
   esac

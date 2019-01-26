@@ -7958,12 +7958,6 @@ public:
             return;
         }
 
-        if(_image.empty())
-        {
-            keypoints.clear();
-            return;
-        }
-
         Mat mask = _mask.getMat(), grayImage;
         UMat ugrayImage;
         _InputArray gray = _image;

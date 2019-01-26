@@ -5,7 +5,7 @@
 // Author: abratchik
 
 #include "dnn_converters.hpp"
-#define LOG_TAG "dnn_converters"
+
 
 void Mat_to_MatShape(cv::Mat& mat, MatShape& matshape)
 {

@@ -3280,14 +3280,6 @@ struct ParamType<_Tp, typename std::enable_if< std::is_enum<_Tp>::value >::type>
     static const Param type = Param::INT;
 };
 
-template<> struct ParamType<Scalar>
-{
-    typedef const Scalar& const_param_type;
-    typedef Scalar member_type;
-
-    enum { type = Param::SCALAR };
-};
-
 //! @} core_basic
 
 } //namespace cv

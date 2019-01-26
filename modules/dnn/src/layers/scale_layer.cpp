@@ -58,7 +58,6 @@ public:
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
-        CV_Assert_N(outputs.size() == 1, !blobs.empty() || inputs.size() == 2);
 
         if (inputs_arr.depth() == CV_16S)
         {
@@ -117,10 +116,6 @@ public:
                     inpData += spatialSize;
                     outData += spatialSize;
                 }
-                else if (hasBias)
-                    add(inpSlice, bias, outSlice);
-                inpData += numWeights;
-                outData += numWeights;
             }
         }
         else

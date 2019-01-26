@@ -825,15 +825,6 @@ void BackgroundSubtractorKNNImpl::getBackgroundImage(OutputArray backgroundImage
     }
 #endif
 
-#ifdef HAVE_OPENCL
-    if (opencl_ON)
-    {
-        CV_OCL_RUN(opencl_ON, ocl_getBackgroundImage(backgroundImage))
-
-        opencl_ON = false;
-    }
-#endif
-
     int nchannels = CV_MAT_CN(frameType);
     //CV_Assert( nchannels == 3 );
     Mat meanBackground(frameSize, CV_8UC3, Scalar::all(0));

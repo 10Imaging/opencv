@@ -993,36 +993,6 @@ void TFImporter::populateNet(Net dstNet)
                 }
             }
         }
-        else if (type == "Sub")
-        {
-            bool haveConst = false;
-            for(int ii = 0; !haveConst && ii < layer.input_size(); ++ii)
-            {
-                Pin input = parsePin(layer.input(ii));
-                haveConst = value_id.find(input.name) != value_id.end();
-            }
-            CV_Assert(haveConst);
-
-            Mat values = getTensorContent(getConstBlob(layer, value_id));
-            CV_Assert(values.type() == CV_32FC1);
-            values *= -1.0f;
-
-            int id;
-            if (values.total() == 1)  // is a scalar.
-            {
-                layerParams.set("shift", values.at<float>(0));
-                id = dstNet.addLayer(name, "Power", layerParams);
-            }
-            else  // is a vector
-            {
-                layerParams.blobs.resize(1, values);
-                id = dstNet.addLayer(name, "Shift", layerParams);
-            }
-            layer_id[name] = id;
-
-            // one input only
-            connect(layer_id, dstNet, parsePin(layer.input(0)), id, 0);
-        }
         else if (type == "MatMul")
         {
             CV_Assert(layer.input_size() == 2);

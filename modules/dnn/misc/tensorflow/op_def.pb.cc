@@ -944,12 +944,6 @@ void OpDef_AttrDef::clear_allowed_values() {
   }
   allowed_values_ = NULL;
 }
-void OpDef_AttrDef::clear_allowed_values() {
-  if (GetArenaNoVirtual() == NULL && allowed_values_ != NULL) {
-    delete allowed_values_;
-  }
-  allowed_values_ = NULL;
-}
 #if !defined(_MSC_VER) || _MSC_VER >= 1900
 const int OpDef_AttrDef::kNameFieldNumber;
 const int OpDef_AttrDef::kTypeFieldNumber;

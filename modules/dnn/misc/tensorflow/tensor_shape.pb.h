@@ -415,13 +415,6 @@ inline ::std::string* TensorShapeProto_Dim::unsafe_arena_release_name() {
   return name_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
       GetArenaNoVirtual());
 }
-inline ::std::string* TensorShapeProto_Dim::unsafe_arena_release_name() {
-  // @@protoc_insertion_point(field_unsafe_arena_release:tensorflow.TensorShapeProto.Dim.name)
-  GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
-
-  return name_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
-      GetArenaNoVirtual());
-}
 inline void TensorShapeProto_Dim::unsafe_arena_set_allocated_name(
     ::std::string* name) {
   GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);

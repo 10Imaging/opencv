@@ -45,8 +45,6 @@
 
 namespace opencv_test { namespace {
 
-namespace opencv_test { namespace {
-
 class CV_ChessboardDetectorTimingTest : public cvtest::BaseTest
 {
 public:

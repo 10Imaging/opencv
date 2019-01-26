@@ -296,7 +296,6 @@ void cv::DetectionBasedTracker::SeparateDetectionWork::workcycleObjectDetector()
 
         int64 t1_detect=getTickCount();
 
-        LOGD("Calling detect");
         cascadeInThread->detect(imageSeparateDetecting, objects);
 
         /*cascadeInThread.detectMultiScale( imageSeparateDetecting, objects,
@@ -438,7 +437,7 @@ cv::DetectionBasedTracker::Parameters::Parameters()
 cv::DetectionBasedTracker::InnerParameters::InnerParameters()
 {
     numLastPositionsToTrack=4;
-    numStepsToWaitBeforeFirstShow=0;
+    numStepsToWaitBeforeFirstShow=6;
     numStepsToTrackWithoutDetectingIfObjectHasNotBeenShown=3;
     numStepsToShowWithoutDetecting=3;
 

@@ -393,8 +393,6 @@ template<> struct DefaultDeleter<SpeciallyDeletable>
 
 namespace opencv_test { namespace {
 
-namespace opencv_test { namespace {
-
 TEST(Core_Ptr, specialized_deleter)
 {
     SpeciallyDeletable sd;

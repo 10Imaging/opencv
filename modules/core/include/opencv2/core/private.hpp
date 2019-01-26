@@ -152,8 +152,6 @@ T* allocSingleton(size_t count = 1) { return static_cast<T*>(allocSingletonBuffe
 
 #if 1 // TODO: Remove in OpenCV 4.x
 
-#if 1 // TODO: Remove in OpenCV 4.x
-
 // property implementation macros
 
 #define CV_IMPL_PROPERTY_RO(type, name, member) \
@@ -200,8 +198,6 @@ T* allocSingleton(size_t count = 1) { return static_cast<T*>(allocSingletonBuffe
 #define IPP_DISABLE_XYZ_RGB             1 // big accuracy difference
 #define IPP_DISABLE_HOUGH               1 // improper integration/results
 #define IPP_DISABLE_FILTER2D_BIG_MASK   1 // different results on masks > 7x7
-
-#define IPP_DISABLE_GAUSSIANBLUR_PARALLEL 1 // not supported (2017u2 / 2017u3)
 
 #define IPP_DISABLE_GAUSSIANBLUR_PARALLEL 1 // not supported (2017u2 / 2017u3)
 

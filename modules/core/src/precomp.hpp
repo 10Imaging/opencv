@@ -255,10 +255,6 @@ void setSize( Mat& m, int _dims, const int* _sz, const size_t* _steps, bool auto
 void finalizeHdr(Mat& m);
 int updateContinuityFlag(int flags, int dims, const int* size, const size_t* step);
 
-void setSize( Mat& m, int _dims, const int* _sz, const size_t* _steps, bool autoSteps=false );
-void finalizeHdr(Mat& m);
-int updateContinuityFlag(int flags, int dims, const int* size, const size_t* step);
-
 struct NoVec
 {
     size_t operator()(const void*, const void*, void*, size_t) const { return 0; }

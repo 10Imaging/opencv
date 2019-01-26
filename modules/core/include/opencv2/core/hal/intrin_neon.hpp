@@ -62,15 +62,6 @@ CV_CPU_OPTIMIZATION_HAL_NAMESPACE_BEGIN
 #define CV_SIMD128_64F 0
 #endif
 
-#ifndef CV_SIMD128_FP16
-# if CV_FP16 && (defined(__GNUC__) && __GNUC__ >= 5)  // #12027: float16x8_t is missing in GCC 4.8.2
-#   define CV_SIMD128_FP16 1
-# endif
-#endif
-#ifndef CV_SIMD128_FP16
-# define CV_SIMD128_FP16 0
-#endif
-
 #if CV_SIMD128_64F
 #define OPENCV_HAL_IMPL_NEON_REINTERPRET(_Tpv, suffix) \
 template <typename T> static inline \

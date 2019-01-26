@@ -260,12 +260,6 @@ void GraphDef::clear_library() {
   }
   library_ = NULL;
 }
-void GraphDef::clear_library() {
-  if (GetArenaNoVirtual() == NULL && library_ != NULL) {
-    delete library_;
-  }
-  library_ = NULL;
-}
 #if !defined(_MSC_VER) || _MSC_VER >= 1900
 const int GraphDef::kNodeFieldNumber;
 const int GraphDef::kVersionsFieldNumber;

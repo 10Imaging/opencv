@@ -421,9 +421,6 @@ Mat& Mat::operator = (const Scalar& s)
     if (this->empty())
         return *this;
 
-    if (this->empty())
-        return *this;
-
     const Mat* arrays[] = { this };
     uchar* dptr;
     NAryMatIterator it(arrays, &dptr, 1);

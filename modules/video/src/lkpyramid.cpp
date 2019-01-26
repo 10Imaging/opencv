@@ -1406,12 +1406,6 @@ cv::Mat cv::estimateRigidTransform( InputArray src1, InputArray src2, bool fullA
     double scale = 1.;
     int i, j, k;
 
-    if( ransacSize0 < 3 )
-        CV_Error( Error::StsBadArg, "ransacSize0 should have value bigger than 2.");
-
-    if( ransacGoodRatio > 1 || ransacGoodRatio < 0)
-        CV_Error( Error::StsBadArg, "ransacGoodRatio should have value between 0 and 1");
-
     if( A.size() != B.size() )
         CV_Error( Error::StsUnmatchedSizes, "Both input images must have the same size" );
 

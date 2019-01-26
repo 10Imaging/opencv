@@ -1035,15 +1035,6 @@ CvPoint2D32f cvPoint2D32f(const cv::Point_<_Tp>& pt)
 }
 #endif
 
-#ifdef __cplusplus
-template<typename _Tp>
-CvPoint2D32f cvPoint2D32f(const cv::Point_<_Tp>& pt)
-{
-    CvPoint2D32f p((float)pt.x, (float)pt.y);
-    return p;
-}
-#endif
-
 /** converts CvPoint to CvPoint2D32f. */
 CV_INLINE  CvPoint2D32f  cvPointTo32f( CvPoint point )
 {

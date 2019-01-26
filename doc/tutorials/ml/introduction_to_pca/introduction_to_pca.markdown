@@ -115,27 +115,7 @@ Source Code
     @include samples/python/tutorial_code/ml/introduction_to_pca/introduction_to_pca.py
 @end_toggle
 
--   **Code at glance:**
-    @include samples/cpp/tutorial_code/ml/introduction_to_pca/introduction_to_pca.cpp
-@end_toggle
-
-@add_toggle_java
--   **Downloadable code**: Click
-    [here](https://github.com/opencv/opencv/tree/3.4/samples/java/tutorial_code/ml/introduction_to_pca/IntroductionToPCADemo.java)
-
--   **Code at glance:**
-    @include samples/java/tutorial_code/ml/introduction_to_pca/IntroductionToPCADemo.java
-@end_toggle
-
-@add_toggle_python
--   **Downloadable code**: Click
-    [here](https://github.com/opencv/opencv/tree/3.4/samples/python/tutorial_code/ml/introduction_to_pca/introduction_to_pca.py)
-
--   **Code at glance:**
-    @include samples/python/tutorial_code/ml/introduction_to_pca/introduction_to_pca.py
-@end_toggle
-
-@note Another example using PCA for dimensionality reduction while maintaining an amount of variance can be found at [opencv_source_code/samples/cpp/pca.cpp](https://github.com/opencv/opencv/tree/3.4/samples/cpp/pca.cpp)
+@note Another example using PCA for dimensionality reduction while maintaining an amount of variance can be found at [opencv_source_code/samples/cpp/pca.cpp](https://github.com/opencv/opencv/tree/master/samples/cpp/pca.cpp)
 
 Explanation
 -----------

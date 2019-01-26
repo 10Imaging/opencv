@@ -65,7 +65,7 @@ Code
 
 @add_toggle_cpp
 This tutorial's code is shown below. You can also download it
-[here](https://github.com/opencv/opencv/tree/3.4/samples/cpp/tutorial_code/ImgProc/Morphology_1.cpp)
+[here](https://github.com/opencv/opencv/tree/master/samples/cpp/tutorial_code/ImgProc/Morphology_1.cpp)
 @include samples/cpp/tutorial_code/ImgProc/Morphology_1.cpp
 @end_toggle
 

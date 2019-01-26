@@ -1251,7 +1251,6 @@ template<typename R> struct TheTest
 
         return *this;
     }
-#endif
 
 #if 0
     TheTest & test_loadstore_fp16()

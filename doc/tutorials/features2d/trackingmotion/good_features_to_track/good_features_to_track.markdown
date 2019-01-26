@@ -16,7 +16,7 @@ Code
 
 @add_toggle_cpp
 This tutorial code's is shown lines below. You can also download it from
-[here](https://github.com/opencv/opencv/tree/3.4/samples/cpp/tutorial_code/TrackingMotion/goodFeaturesToTrack_Demo.cpp)
+[here](https://github.com/opencv/opencv/tree/master/samples/cpp/tutorial_code/TrackingMotion/goodFeaturesToTrack_Demo.cpp)
 @include samples/cpp/tutorial_code/TrackingMotion/goodFeaturesToTrack_Demo.cpp
 @end_toggle
 

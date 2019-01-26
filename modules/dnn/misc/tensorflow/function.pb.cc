@@ -1235,12 +1235,6 @@ void FunctionDef::clear_signature() {
   }
   signature_ = NULL;
 }
-void FunctionDef::clear_signature() {
-  if (GetArenaNoVirtual() == NULL && signature_ != NULL) {
-    delete signature_;
-  }
-  signature_ = NULL;
-}
 #if !defined(_MSC_VER) || _MSC_VER >= 1900
 const int FunctionDef::kSignatureFieldNumber;
 const int FunctionDef::kNodeFieldNumber;

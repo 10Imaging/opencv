@@ -955,13 +955,6 @@ inline ::std::string* FunctionDef_Node::unsafe_arena_release_op() {
   return op_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
       GetArenaNoVirtual());
 }
-inline ::std::string* FunctionDef_Node::unsafe_arena_release_op() {
-  // @@protoc_insertion_point(field_unsafe_arena_release:tensorflow.FunctionDef.Node.op)
-  GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
-
-  return op_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
-      GetArenaNoVirtual());
-}
 inline void FunctionDef_Node::unsafe_arena_set_allocated_op(
     ::std::string* op) {
   GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
@@ -1283,13 +1276,6 @@ inline ::std::string* GradientDef::unsafe_arena_release_function_name() {
   return function_name_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
       GetArenaNoVirtual());
 }
-inline ::std::string* GradientDef::unsafe_arena_release_function_name() {
-  // @@protoc_insertion_point(field_unsafe_arena_release:tensorflow.GradientDef.function_name)
-  GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
-
-  return function_name_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
-      GetArenaNoVirtual());
-}
 inline void GradientDef::unsafe_arena_set_allocated_function_name(
     ::std::string* function_name) {
   GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
@@ -1360,13 +1346,6 @@ inline void GradientDef::set_allocated_gradient_func(::std::string* gradient_fun
 }
 inline ::std::string* GradientDef::unsafe_arena_release_gradient_func() {
   // @@protoc_insertion_point(field_unsafe_arena_release:opencv_tensorflow.GradientDef.gradient_func)
-  GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
-
-  return gradient_func_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
-      GetArenaNoVirtual());
-}
-inline ::std::string* GradientDef::unsafe_arena_release_gradient_func() {
-  // @@protoc_insertion_point(field_unsafe_arena_release:tensorflow.GradientDef.gradient_func)
   GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
 
   return gradient_func_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),

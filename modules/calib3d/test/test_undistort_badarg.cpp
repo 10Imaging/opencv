@@ -44,8 +44,6 @@
 
 namespace opencv_test { namespace {
 
-namespace opencv_test { namespace {
-
 class CV_UndistortPointsBadArgTest : public cvtest::BadArgTest
 {
 public:

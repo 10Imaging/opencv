@@ -1121,17 +1121,6 @@ inline ::std::string* AttrValue::unsafe_arena_release_s() {
     return NULL;
   }
 }
-inline ::std::string* AttrValue::unsafe_arena_release_s() {
-  // @@protoc_insertion_point(field_unsafe_arena_release:tensorflow.AttrValue.s)
-  GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
-  if (has_s()) {
-    clear_has_value();
-    return value_.s_.UnsafeArenaRelease(
-        &::google::protobuf::internal::GetEmptyStringAlreadyInited(), GetArenaNoVirtual());
-  } else {
-    return NULL;
-  }
-}
 inline void AttrValue::unsafe_arena_set_allocated_s(::std::string* s) {
   GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
   if (!has_s()) {
@@ -1318,17 +1307,6 @@ inline ::opencv_tensorflow::TensorShapeProto* AttrValue::mutable_shape() {
   // @@protoc_insertion_point(field_mutable:opencv_tensorflow.AttrValue.shape)
   return value_.shape_;
 }
-inline ::tensorflow::TensorShapeProto* AttrValue::mutable_shape() {
-  if (!has_shape()) {
-    clear_value();
-    set_has_shape();
-    value_.shape_ =
-      ::google::protobuf::Arena::CreateMessage< ::tensorflow::TensorShapeProto >(
-      GetArenaNoVirtual());
-  }
-  // @@protoc_insertion_point(field_mutable:tensorflow.AttrValue.shape)
-  return value_.shape_;
-}
 
 // .opencv_tensorflow.TensorProto tensor = 8;
 inline bool AttrValue::has_tensor() const {
@@ -1385,17 +1363,6 @@ inline ::opencv_tensorflow::TensorProto* AttrValue::mutable_tensor() {
       GetArenaNoVirtual());
   }
   // @@protoc_insertion_point(field_mutable:opencv_tensorflow.AttrValue.tensor)
-  return value_.tensor_;
-}
-inline ::tensorflow::TensorProto* AttrValue::mutable_tensor() {
-  if (!has_tensor()) {
-    clear_value();
-    set_has_tensor();
-    value_.tensor_ =
-      ::google::protobuf::Arena::CreateMessage< ::tensorflow::TensorProto >(
-      GetArenaNoVirtual());
-  }
-  // @@protoc_insertion_point(field_mutable:tensorflow.AttrValue.tensor)
   return value_.tensor_;
 }
 
@@ -1464,17 +1431,6 @@ inline ::opencv_tensorflow::AttrValue_ListValue* AttrValue::mutable_list() {
   // @@protoc_insertion_point(field_mutable:opencv_tensorflow.AttrValue.list)
   return value_.list_;
 }
-inline ::tensorflow::AttrValue_ListValue* AttrValue::mutable_list() {
-  if (!has_list()) {
-    clear_value();
-    set_has_list();
-    value_.list_ =
-      ::google::protobuf::Arena::CreateMessage< ::tensorflow::AttrValue_ListValue >(
-      GetArenaNoVirtual());
-  }
-  // @@protoc_insertion_point(field_mutable:tensorflow.AttrValue.list)
-  return value_.list_;
-}
 
 // .opencv_tensorflow.NameAttrList func = 10;
 inline bool AttrValue::has_func() const {
@@ -1539,17 +1495,6 @@ inline ::opencv_tensorflow::NameAttrList* AttrValue::mutable_func() {
       GetArenaNoVirtual());
   }
   // @@protoc_insertion_point(field_mutable:opencv_tensorflow.AttrValue.func)
-  return value_.func_;
-}
-inline ::tensorflow::NameAttrList* AttrValue::mutable_func() {
-  if (!has_func()) {
-    clear_value();
-    set_has_func();
-    value_.func_ =
-      ::google::protobuf::Arena::CreateMessage< ::tensorflow::NameAttrList >(
-      GetArenaNoVirtual());
-  }
-  // @@protoc_insertion_point(field_mutable:tensorflow.AttrValue.func)
   return value_.func_;
 }
 
@@ -1664,17 +1609,6 @@ inline ::std::string* AttrValue::unsafe_arena_release_placeholder() {
     return NULL;
   }
 }
-inline ::std::string* AttrValue::unsafe_arena_release_placeholder() {
-  // @@protoc_insertion_point(field_unsafe_arena_release:tensorflow.AttrValue.placeholder)
-  GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
-  if (has_placeholder()) {
-    clear_has_value();
-    return value_.placeholder_.UnsafeArenaRelease(
-        &::google::protobuf::internal::GetEmptyStringAlreadyInited(), GetArenaNoVirtual());
-  } else {
-    return NULL;
-  }
-}
 inline void AttrValue::unsafe_arena_set_allocated_placeholder(::std::string* placeholder) {
   GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
   if (!has_placeholder()) {
@@ -1760,13 +1694,6 @@ inline void NameAttrList::set_allocated_name(::std::string* name) {
 }
 inline ::std::string* NameAttrList::unsafe_arena_release_name() {
   // @@protoc_insertion_point(field_unsafe_arena_release:opencv_tensorflow.NameAttrList.name)
-  GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
-
-  return name_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
-      GetArenaNoVirtual());
-}
-inline ::std::string* NameAttrList::unsafe_arena_release_name() {
-  // @@protoc_insertion_point(field_unsafe_arena_release:tensorflow.NameAttrList.name)
   GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
 
   return name_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),

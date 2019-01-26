@@ -704,13 +704,6 @@ inline ::std::string* NodeDef::unsafe_arena_release_name() {
   return name_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
       GetArenaNoVirtual());
 }
-inline ::std::string* NodeDef::unsafe_arena_release_name() {
-  // @@protoc_insertion_point(field_unsafe_arena_release:tensorflow.NodeDef.name)
-  GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
-
-  return name_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
-      GetArenaNoVirtual());
-}
 inline void NodeDef::unsafe_arena_set_allocated_name(
     ::std::string* name) {
   GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
@@ -781,13 +774,6 @@ inline void NodeDef::set_allocated_op(::std::string* op) {
 }
 inline ::std::string* NodeDef::unsafe_arena_release_op() {
   // @@protoc_insertion_point(field_unsafe_arena_release:opencv_tensorflow.NodeDef.op)
-  GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
-
-  return op_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
-      GetArenaNoVirtual());
-}
-inline ::std::string* NodeDef::unsafe_arena_release_op() {
-  // @@protoc_insertion_point(field_unsafe_arena_release:tensorflow.NodeDef.op)
   GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
 
   return op_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
@@ -932,13 +918,6 @@ inline void NodeDef::set_allocated_device(::std::string* device) {
 }
 inline ::std::string* NodeDef::unsafe_arena_release_device() {
   // @@protoc_insertion_point(field_unsafe_arena_release:opencv_tensorflow.NodeDef.device)
-  GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
-
-  return device_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
-      GetArenaNoVirtual());
-}
-inline ::std::string* NodeDef::unsafe_arena_release_device() {
-  // @@protoc_insertion_point(field_unsafe_arena_release:tensorflow.NodeDef.device)
   GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
 
   return device_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),

@@ -218,7 +218,6 @@ public:
                              nms_confidences, nms_boxes, format("batch size %d, sample %d\n", batch_size, b).c_str(), confThreshold, scoreDiff, iouDiff);
         }
     }
-};
 
     void testDarknetModel(const std::string& cfg, const std::string& weights,
                           const std::vector<int>& refClassIds,

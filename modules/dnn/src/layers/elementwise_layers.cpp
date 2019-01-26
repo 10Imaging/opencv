@@ -1118,12 +1118,6 @@ struct ChannelsPReLUFunctor
 
     explicit ChannelsPReLUFunctor(const Mat& scale_=Mat()) : scale(scale_)
     {
-        scale_umat = scale.getUMat(ACCESS_READ);
-    }
-
-    bool supportBackend(int backendId, int)
-    {
-        return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE;
     }
 
     bool supportBackend(int backendId, int)

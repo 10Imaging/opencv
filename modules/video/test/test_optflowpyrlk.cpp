@@ -43,8 +43,6 @@
 
 namespace opencv_test { namespace {
 
-namespace opencv_test { namespace {
-
 /* ///////////////////// pyrlk_test ///////////////////////// */
 
 class CV_OptFlowPyrLKTest : public cvtest::BaseTest

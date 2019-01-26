@@ -308,9 +308,6 @@ public:
     //! internal use method: updates the continuity flag
     CV_WRAP void updateContinuityFlag();
 
-    //! internal use method: updates the continuity flag
-    void updateContinuityFlag();
-
     /*! includes several bit-fields:
     - the magic signature
     - continuity flag

@@ -27,7 +27,7 @@ Let's modify the program made in the tutorial @ref tutorial_adding_images. We wi
 
 @add_toggle_cpp
 This tutorial code's is shown lines below. You can also download it from
-[here](https://github.com/opencv/opencv/tree/3.4/samples/cpp/tutorial_code/HighGUI/AddingImagesTrackbar.cpp)
+[here](https://github.com/opencv/opencv/tree/master/samples/cpp/tutorial_code/HighGUI/AddingImagesTrackbar.cpp)
 @include cpp/tutorial_code/HighGUI/AddingImagesTrackbar.cpp
 @end_toggle
 

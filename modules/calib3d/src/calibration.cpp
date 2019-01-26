@@ -3373,10 +3373,6 @@ static void collectCalibrationData( InputArrayOfArrays objectPoints,
     Point3f* objPtData = objPtMat.ptr<Point3f>();
     Point2f* imgPtData1 = imgPtMat1.ptr<Point2f>();
 
-#if defined __GNUC__ && __GNUC__ >= 8
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
-#endif
     for( i = 0; i < nimages; i++, j += ni )
     {
         Mat objpt = objectPoints.getMat(i);
@@ -3422,9 +3418,6 @@ static void collectCalibrationData( InputArrayOfArrays objectPoints,
             }
         }
     }
-#if defined __GNUC__ && __GNUC__ >= 8
-#pragma GCC diagnostic pop
-#endif
 }
 
 static void collectCalibrationData( InputArrayOfArrays objectPoints,

@@ -509,13 +509,6 @@ inline ::std::string* TensorProto::unsafe_arena_release_tensor_content() {
   return tensor_content_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
       GetArenaNoVirtual());
 }
-inline ::std::string* TensorProto::unsafe_arena_release_tensor_content() {
-  // @@protoc_insertion_point(field_unsafe_arena_release:tensorflow.TensorProto.tensor_content)
-  GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);
-
-  return tensor_content_.UnsafeArenaRelease(&::google::protobuf::internal::GetEmptyStringAlreadyInited(),
-      GetArenaNoVirtual());
-}
 inline void TensorProto::unsafe_arena_set_allocated_tensor_content(
     ::std::string* tensor_content) {
   GOOGLE_DCHECK(GetArenaNoVirtual() != NULL);

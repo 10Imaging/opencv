@@ -229,9 +229,6 @@ public:
             int batch_size = inpBlob.size[0];
             int rows = inpBlob.size[1];
             int cols = inpBlob.size[2];
-            CV_Assert(inputs.size() < 2 || inputs[1]->dims == 4);
-            int hNorm = inputs.size() > 1 ? inputs[1]->size[2] : rows;
-            int wNorm = inputs.size() > 1 ? inputs[1]->size[3] : cols;
 
             // address length for one image in batch, both for input and output
             int sample_size = cell_size*rows*cols*anchors;

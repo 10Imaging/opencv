@@ -228,8 +228,6 @@ TEST_P(Test_TensorFlow_layers, flatten)
         (target == DNN_TARGET_OPENCL || target == DNN_TARGET_OPENCL_FP16 || target == DNN_TARGET_MYRIAD))
         throw SkipTestException("");
     runTensorFlowNet("flatten", true);
-    runTensorFlowNet("unfused_flatten");
-    runTensorFlowNet("unfused_flatten_unknown_batch");
 }
 
 TEST_P(Test_TensorFlow_layers, unfused_flatten)

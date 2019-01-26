@@ -165,12 +165,6 @@ void TensorProto::clear_tensor_shape() {
   }
   tensor_shape_ = NULL;
 }
-void TensorProto::clear_tensor_shape() {
-  if (GetArenaNoVirtual() == NULL && tensor_shape_ != NULL) {
-    delete tensor_shape_;
-  }
-  tensor_shape_ = NULL;
-}
 #if !defined(_MSC_VER) || _MSC_VER >= 1900
 const int TensorProto::kDtypeFieldNumber;
 const int TensorProto::kTensorShapeFieldNumber;

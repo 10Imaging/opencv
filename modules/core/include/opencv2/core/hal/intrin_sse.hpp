@@ -1136,34 +1136,6 @@ inline v_float64x2 v_fma(const v_float64x2& a, const v_float64x2& b, const v_flo
 #endif
 }
 
-inline v_int32x4 v_fma(const v_int32x4& a, const v_int32x4& b, const v_int32x4& c)
-{
-    return a * b + c;
-}
-
-inline v_int32x4 v_muladd(const v_int32x4& a, const v_int32x4& b, const v_int32x4& c)
-{
-    return v_fma(a, b, c);
-}
-
-inline v_float32x4 v_fma(const v_float32x4& a, const v_float32x4& b, const v_float32x4& c)
-{
-#if CV_FMA3
-    return v_float32x4(_mm_fmadd_ps(a.val, b.val, c.val));
-#else
-    return v_float32x4(_mm_add_ps(_mm_mul_ps(a.val, b.val), c.val));
-#endif
-}
-
-inline v_float64x2 v_fma(const v_float64x2& a, const v_float64x2& b, const v_float64x2& c)
-{
-#if CV_FMA3
-    return v_float64x2(_mm_fmadd_pd(a.val, b.val, c.val));
-#else
-    return v_float64x2(_mm_add_pd(_mm_mul_pd(a.val, b.val), c.val));
-#endif
-}
-
 #define OPENCV_HAL_IMPL_SSE_MISC_FLT_OP(_Tpvec, _Tp, _Tpreg, suffix, absmask_vec) \
 inline _Tpvec v_absdiff(const _Tpvec& a, const _Tpvec& b) \
 { \

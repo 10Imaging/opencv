@@ -1733,13 +1733,6 @@ static void HoughCircles( InputArray _image, OutputArray _circles,
         CV_CheckType(type, type == CV_32FC3 || type == CV_32FC4, "Wrong type of output circles");
     }
 
-    int type = CV_32FC3;
-    if( _circles.fixedType() )
-    {
-        type = _circles.type();
-        CV_CheckType(type, type == CV_32FC3 || type == CV_32FC4, "Wrong type of output circles");
-    }
-
     CV_Assert(!_image.empty() && _image.type() == CV_8UC1 && (_image.isMat() || _image.isUMat()));
     CV_Assert(_circles.isMat() || _circles.isVector());
 
