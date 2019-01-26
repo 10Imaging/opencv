@@ -89,16 +89,6 @@ namespace cv {
                 return init_val;
             }
 
-            std::string getParamS(const std::map<std::string, std::string> &params, const std::string param_name, std::string init_val)
-            {
-                std::map<std::string, std::string>::const_iterator it = params.find(param_name);
-                if (it != params.end()) {
-                    std::stringstream ss(it->second);
-                    init_val = ss.str();
-                }
-                return init_val;
-            }
-
             static const std::string kFirstLayerName = "data";
 
             class setLayersParams {
@@ -638,7 +628,7 @@ namespace cv {
                     }
                     else if (layer_type == "shortcut")
                     {
-                        std::string bottom_layer = getParamS(layer_params, "from", "");
+                        std::string bottom_layer = getParam<std::string>(layer_params, "from", "");
                         CV_Assert(!bottom_layer.empty());
                         int from = std::atoi(bottom_layer.c_str());
 
@@ -657,11 +647,11 @@ namespace cv {
                         int classes = getParam<int>(layer_params, "classes", -1);
                         int num_of_anchors = getParam<int>(layer_params, "num", -1);
 
-                        std::string anchors_values = getParamS(layer_params, "anchors", std::string());
+                        std::string anchors_values = getParam<std::string>(layer_params, "anchors", std::string());
                         CV_Assert(!anchors_values.empty());
                         std::vector<float> anchors_vec = getNumbers<float>(anchors_values);
 
-                        std::string mask_values = getParamS(layer_params, "mask", std::string());
+                        std::string mask_values = getParam<std::string>(layer_params, "mask", std::string());
                         CV_Assert(!mask_values.empty());
                         std::vector<int> mask_vec = getNumbers<int>(mask_values);
 

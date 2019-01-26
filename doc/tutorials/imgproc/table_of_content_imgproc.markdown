@@ -320,3 +320,33 @@ In this section you will learn about the image processing (manipulation) functio
     *Author:* Karpushin Vladislav
 
     You will learn how to recover an out-of-focus image by Wiener filter.
+
+-   @subpage tutorial_motion_deblur_filter
+
+    *Languages:* C++
+
+    *Compatibility:* \> OpenCV 2.0
+
+    *Author:* Karpushin Vladislav
+
+    You will learn how to recover an image with motion blur distortion using a Wiener filter.
+
+-   @subpage tutorial_anisotropic_image_segmentation_by_a_gst
+
+    *Languages:* C++
+
+    *Compatibility:* \> OpenCV 2.0
+
+    *Author:* Karpushin Vladislav
+
+    You will learn how to segment an anisotropic image with a single local orientation by a gradient structure tensor.
+
+-   @subpage tutorial_periodic_noise_removing_filter
+
+    *Languages:* C++
+
+    *Compatibility:* \> OpenCV 2.0
+
+    *Author:* Karpushin Vladislav
+
+    You will learn how to remove periodic noise in the Fourier domain.

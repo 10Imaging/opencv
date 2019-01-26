@@ -70,7 +70,7 @@ Ptr<Blender> Blender::createDefault(int type, bool try_gpu)
     if (type == NO)
         return makePtr<Blender>();
     if (type == FEATHER)
-        return makePtr<FeatherBlender>();
+        return makePtr<FeatherBlender>(try_gpu);
     if (type == MULTI_BAND)
         return makePtr<MultiBandBlender>(try_gpu);
     CV_Error(Error::StsBadArg, "unsupported blending method");
@@ -132,7 +132,6 @@ void Blender::blend(InputOutputArray dst, InputOutputArray dst_mask)
     dst_.release();
     dst_mask_.release();
 }
-
 
 void FeatherBlender::prepare(Rect dst_roi)
 {
@@ -223,14 +222,13 @@ MultiBandBlender::MultiBandBlender(int try_gpu, int num_bands, int weight_type)
     can_use_gpu_ = try_gpu && cuda::getCudaEnabledDeviceCount();
     gpu_feed_idx_ = 0;
 #else
-    (void) try_gpu;
+    CV_UNUSED(try_gpu);
     can_use_gpu_ = false;
 #endif
 
     CV_Assert(weight_type == CV_32F || weight_type == CV_16S);
     weight_type_ = weight_type;
 }
-
 
 void MultiBandBlender::prepare(Rect dst_roi)
 {
@@ -720,12 +718,6 @@ void normalizeUsingWeightMap(InputArray _weight, InputOutputArray _src)
 {
     Mat src;
     Mat weight;
-#ifdef HAVE_TEGRA_OPTIMIZATION
-    src = _src.getMat();
-    weight = _weight.getMat();
-    if(tegra::useTegra() && tegra::normalizeUsingWeightMap(weight, src))
-        return;
-#endif
 
 #ifdef HAVE_OPENCL
     if ( !cv::ocl::isOpenCLActivated() ||
@@ -792,12 +784,6 @@ void createWeightMap(InputArray mask, float sharpness, InputOutputArray weight)
 
 void createLaplacePyr(InputArray img, int num_levels, std::vector<UMat> &pyr)
 {
-#ifdef HAVE_TEGRA_OPTIMIZATION
-    cv::Mat imgMat = img.getMat();
-    if(tegra::useTegra() && tegra::createLaplacePyr(imgMat, num_levels, pyr))
-        return;
-#endif
-
     pyr.resize(num_levels + 1);
 
     if(img.depth() == CV_8U)
@@ -868,9 +854,9 @@ void createLaplacePyrGpu(InputArray img, int num_levels, std::vector<UMat> &pyr)
 
     gpu_pyr[num_levels].download(pyr[num_levels]);
 #else
-    (void)img;
-    (void)num_levels;
-    (void)pyr;
+    CV_UNUSED(img);
+    CV_UNUSED(num_levels);
+    CV_UNUSED(pyr);
     CV_Error(Error::StsNotImplemented, "CUDA optimization is unavailable");
 #endif
 }
@@ -908,7 +894,7 @@ void restoreImageFromLaplacePyrGpu(std::vector<UMat> &pyr)
 
     gpu_pyr[0].download(pyr[0]);
 #else
-    (void)pyr;
+    CV_UNUSED(pyr);
     CV_Error(Error::StsNotImplemented, "CUDA optimization is unavailable");
 #endif
 }

@@ -27,15 +27,25 @@ float fastAtan2(float y, float x);
 #ifndef CV_CPU_OPTIMIZATION_DECLARATIONS_ONLY
 
 using namespace std;
+using namespace cv;
 
 namespace {
 
+#ifdef __EMSCRIPTEN__
+static inline float atan_f32(float y, float x)
+{
+    float a = atan2(y, x) * 180.0f / CV_PI;
+    if (a < 0.0f)
+        a += 360.0f;
+    if (a >= 360.0f)
+        a -= 360.0f;
+    return a; // range [0; 360)
+}
+#else
 static const float atan2_p1 = 0.9997878412794807f*(float)(180/CV_PI);
 static const float atan2_p3 = -0.3258083974640975f*(float)(180/CV_PI);
 static const float atan2_p5 = 0.1555786518463281f*(float)(180/CV_PI);
 static const float atan2_p7 = -0.04432655554792128f*(float)(180/CV_PI);
-
-using namespace cv;
 
 static inline float atan_f32(float y, float x)
 {
@@ -59,6 +69,7 @@ static inline float atan_f32(float y, float x)
         a = 360.f - a;
     return a;
 }
+#endif
 
 #if CV_SIMD
 
@@ -149,13 +160,13 @@ static void fastAtan32f_(const float *Y, const float *X, float *angle, int len, 
 
 void fastAtan32f(const float *Y, const float *X, float *angle, int len, bool angleInDegrees )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
     fastAtan32f_(Y, X, angle, len, angleInDegrees );
 }
 
 void fastAtan64f(const double *Y, const double *X, double *angle, int len, bool angleInDegrees)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     const int BLKSZ = 128;
     float ybuf[BLKSZ], xbuf[BLKSZ], abuf[BLKSZ];
@@ -176,13 +187,13 @@ void fastAtan64f(const double *Y, const double *X, double *angle, int len, bool 
 // deprecated
 void fastAtan2(const float *Y, const float *X, float *angle, int len, bool angleInDegrees )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
     fastAtan32f(Y, X, angle, len, angleInDegrees);
 }
 
 void magnitude32f(const float* x, const float* y, float* mag, int len)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     int i = 0;
 
@@ -215,7 +226,7 @@ void magnitude32f(const float* x, const float* y, float* mag, int len)
 
 void magnitude64f(const double* x, const double* y, double* mag, int len)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     int i = 0;
 
@@ -249,7 +260,7 @@ void magnitude64f(const double* x, const double* y, double* mag, int len)
 
 void invSqrt32f(const float* src, float* dst, int len)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     int i = 0;
 
@@ -278,7 +289,7 @@ void invSqrt32f(const float* src, float* dst, int len)
 
 void invSqrt64f(const double* src, double* dst, int len)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
     int i = 0;
 
 #if CV_SIMD_64F
@@ -305,7 +316,7 @@ void invSqrt64f(const double* src, double* dst, int len)
 
 void sqrt32f(const float* src, float* dst, int len)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     int i = 0;
 
@@ -334,7 +345,7 @@ void sqrt32f(const float* src, float* dst, int len)
 
 void sqrt64f(const double* src, double* dst, int len)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     int i = 0;
 
@@ -363,10 +374,10 @@ void sqrt64f(const double* src, double* dst, int len)
 // Workaround for ICE in MSVS 2015 update 3 (issue #7795)
 // CV_AVX is not used here, because generated code is faster in non-AVX mode.
 // (tested with disabled IPP on i5-6300U)
-#if (defined _MSC_VER && _MSC_VER >= 1900)
+#if (defined _MSC_VER && _MSC_VER >= 1900) || defined(__EMSCRIPTEN__)
 void exp32f(const float *src, float *dst, int n)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     for (int i = 0; i < n; i++)
     {
@@ -376,7 +387,7 @@ void exp32f(const float *src, float *dst, int n)
 
 void exp64f(const double *src, double *dst, int n)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     for (int i = 0; i < n; i++)
     {
@@ -386,7 +397,7 @@ void exp64f(const double *src, double *dst, int n)
 
 void log32f(const float *src, float *dst, int n)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     for (int i = 0; i < n; i++)
     {
@@ -395,7 +406,7 @@ void log32f(const float *src, float *dst, int n)
 }
 void log64f(const double *src, double *dst, int n)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     for (int i = 0; i < n; i++)
     {
@@ -424,7 +435,7 @@ static const double exp_max_val = 3000.*(1 << EXPTAB_SCALE); // log10(DBL_MAX) <
 
 void exp32f( const float *_x, float *y, int n )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     const float* const expTab_f = cv::details::getExpTab32f();
 
@@ -537,7 +548,7 @@ void exp32f( const float *_x, float *y, int n )
 
 void exp64f( const double *_x, double *y, int n )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     const double* const expTab = cv::details::getExpTab64f();
 
@@ -671,7 +682,7 @@ static const double ln_2 = 0.69314718055994530941723212145818;
 
 void log32f( const float *_x, float *y, int n )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     const float* const logTab_f = cv::details::getLogTab32f();
 
@@ -742,7 +753,7 @@ void log32f( const float *_x, float *y, int n )
 
 void log64f( const double *x, double *y, int n )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     const double* const logTab = cv::details::getLogTab64f();
 

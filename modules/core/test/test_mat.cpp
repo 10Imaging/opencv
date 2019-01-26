@@ -3,6 +3,12 @@
 // of this distribution and at http://opencv.org/license.html.
 #include "test_precomp.hpp"
 
+#ifdef HAVE_EIGEN
+#include <Eigen/Core>
+#include <Eigen/Dense>
+#include "opencv2/core/eigen.hpp"
+#endif
+
 namespace opencv_test { namespace {
 
 class Core_ReduceTest : public cvtest::BaseTest
@@ -415,15 +421,15 @@ TEST(Core_PCA, accuracy)
 
 #ifdef CHECK_C
     // 4. check C PCA & ROW
-    _points = rPoints;
-    _testPoints = rTestPoints;
-    _avg = avg;
-    _eval = eval;
-    _evec = evec;
+    _points = cvMat(rPoints);
+    _testPoints = cvMat(rTestPoints);
+    _avg = cvMat(avg);
+    _eval = cvMat(eval);
+    _evec = cvMat(evec);
     prjTestPoints.create(rTestPoints.rows, maxComponents, rTestPoints.type() );
     backPrjTestPoints.create(rPoints.size(), rPoints.type() );
-    _prjTestPoints = prjTestPoints;
-    _backPrjTestPoints = backPrjTestPoints;
+    _prjTestPoints = cvMat(prjTestPoints);
+    _backPrjTestPoints = cvMat(backPrjTestPoints);
 
     cvCalcPCA( &_points, &_avg, &_eval, &_evec, CV_PCA_DATA_AS_ROW );
     cvProjectPCA( &_testPoints, &_avg, &_evec, &_prjTestPoints );
@@ -435,13 +441,13 @@ TEST(Core_PCA, accuracy)
     ASSERT_LE(err, diffBackPrjEps) << "bad accuracy of cvBackProjectPCA() (CV_PCA_DATA_AS_ROW)";
 
     // 5. check C PCA & COL
-    _points = cPoints;
-    _testPoints = cTestPoints;
-    avg = avg.t(); _avg = avg;
-    eval = eval.t(); _eval = eval;
-    evec = evec.t(); _evec = evec;
-    prjTestPoints = prjTestPoints.t(); _prjTestPoints = prjTestPoints;
-    backPrjTestPoints = backPrjTestPoints.t(); _backPrjTestPoints = backPrjTestPoints;
+    _points = cvMat(cPoints);
+    _testPoints = cvMat(cTestPoints);
+    avg = avg.t(); _avg = cvMat(avg);
+    eval = eval.t(); _eval = cvMat(eval);
+    evec = evec.t(); _evec = cvMat(evec);
+    prjTestPoints = prjTestPoints.t(); _prjTestPoints = cvMat(prjTestPoints);
+    backPrjTestPoints = backPrjTestPoints.t(); _backPrjTestPoints = cvMat(backPrjTestPoints);
 
     cvCalcPCA( &_points, &_avg, &_eval, &_evec, CV_PCA_DATA_AS_COL );
     cvProjectPCA( &_testPoints, &_avg, &_evec, &_prjTestPoints );
@@ -615,7 +621,7 @@ void Core_ArrayOpTest::run( int /* start_from */)
     {
         int sz3[] = {5, 10, 15};
         MatND A(3, sz3, CV_32F), B(3, sz3, CV_16SC4);
-        CvMatND matA = A, matB = B;
+        CvMatND matA = cvMatND(A), matB = cvMatND(B);
         RNG rng;
         rng.fill(A, CV_RAND_UNI, Scalar::all(-10), Scalar::all(10));
         rng.fill(B, CV_RAND_UNI, Scalar::all(-10), Scalar::all(10));
@@ -625,8 +631,8 @@ void Core_ArrayOpTest::run( int /* start_from */)
         Scalar val1(-1000, 30, 3, 8);
         cvSetRealND(&matA, idx0, val0);
         cvSetReal3D(&matA, idx1[0], idx1[1], idx1[2], -val0);
-        cvSetND(&matB, idx0, val1);
-        cvSet3D(&matB, idx1[0], idx1[1], idx1[2], -val1);
+        cvSetND(&matB, idx0, cvScalar(val1));
+        cvSet3D(&matB, idx1[0], idx1[1], idx1[2], cvScalar(-val1));
         Ptr<CvMatND> matC(cvCloneMatND(&matB));
 
         if( A.at<float>(idx0[0], idx0[1], idx0[2]) != val0 ||
@@ -946,7 +952,7 @@ void Core_ArrayOpTest::run( int /* start_from */)
 }
 
 
-template <class ElemType>
+template <class T>
 int calcDiffElemCountImpl(const vector<Mat>& mv, const Mat& m)
 {
     int diffElemCount = 0;
@@ -955,12 +961,12 @@ int calcDiffElemCountImpl(const vector<Mat>& mv, const Mat& m)
     {
         for(int x = 0; x < m.cols; x++)
         {
-            const ElemType* mElem = &m.at<ElemType>(y,x*mChannels);
+            const T* mElem = &m.at<T>(y, x*mChannels);
             size_t loc = 0;
             for(size_t i = 0; i < mv.size(); i++)
             {
                 const size_t mvChannel = mv[i].channels();
-                const ElemType* mvElem = &mv[i].at<ElemType>(y,x*(int)mvChannel);
+                const T* mvElem = &mv[i].at<T>(y, x*(int)mvChannel);
                 for(size_t li = 0; li < mvChannel; li++)
                     if(mElem[loc + li] != mvElem[li])
                         diffElemCount++;
@@ -1344,8 +1350,6 @@ TEST(Core_Matx, fromMat_)
     ASSERT_EQ( cvtest::norm(a, b, NORM_INF), 0.);
 }
 
-#ifdef CV_CXX11
-
 TEST(Core_Matx, from_initializer_list)
 {
     Mat_<double> a = (Mat_<double>(2,2) << 10, 11, 12, 13);
@@ -1359,8 +1363,6 @@ TEST(Core_Mat, regression_9507)
     cv::Mat m2{m};
     EXPECT_EQ(25u, m2.total());
 }
-
-#endif // CXX11
 
 TEST(Core_InputArray, empty)
 {
@@ -1638,7 +1640,6 @@ TEST(Mat, regression_10507_mat_setTo)
     }
 }
 
-#ifdef CV_CXX_STD_ARRAY
 TEST(Core_Mat_array, outputArray_create_getMat)
 {
     cv::Mat_<uchar> src_base(5, 1);
@@ -1727,7 +1728,6 @@ TEST(Core_Mat_array, SplitMerge)
         EXPECT_EQ(0, cvtest::norm(src[i], dst[i], NORM_INF));
     }
 }
-#endif
 
 TEST(Mat, regression_8680)
 {
@@ -1736,8 +1736,6 @@ TEST(Mat, regression_8680)
    mat.release();
    ASSERT_EQ(mat.channels(), 2);
 }
-
-#ifdef CV_CXX11
 
 TEST(Mat_, range_based_for)
 {
@@ -1799,8 +1797,6 @@ TEST(Mat_, template_based_ptr)
     int idx[4] = {1, 0, 0, 1};
     ASSERT_FLOAT_EQ(66.0f, *(mat.ptr<float>(idx)));
 }
-
-#endif
 
 
 BIGDATA_TEST(Mat, push_back_regression_4158)  // memory usage: ~10.6 Gb
@@ -1881,5 +1877,136 @@ TEST(Core_Split, crash_12171)
     EXPECT_EQ(2, dst2.ptr<uchar>(1)[0]);
     EXPECT_EQ(2, dst2.ptr<uchar>(1)[1]);
 }
+
+TEST(Core_Merge, bug_13544)
+{
+    Mat src1(2, 2, CV_8UC3, Scalar::all(1));
+    Mat src2(2, 2, CV_8UC3, Scalar::all(2));
+    Mat src3(2, 2, CV_8UC3, Scalar::all(3));
+    Mat src_arr[] = { src1, src2, src3 };
+    Mat dst;
+    merge(src_arr, 3, dst);
+    ASSERT_EQ(9, dst.channels());  // Avoid memory access out of buffer
+    EXPECT_EQ(3, (int)dst.ptr<uchar>(0)[6]);
+    EXPECT_EQ(3, (int)dst.ptr<uchar>(0)[7]);
+    EXPECT_EQ(3, (int)dst.ptr<uchar>(0)[8]);
+    EXPECT_EQ(1, (int)dst.ptr<uchar>(1)[0]);
+    EXPECT_EQ(1, (int)dst.ptr<uchar>(1)[1]);
+    EXPECT_EQ(1, (int)dst.ptr<uchar>(1)[2]);
+    EXPECT_EQ(2, (int)dst.ptr<uchar>(1)[3]);
+    EXPECT_EQ(2, (int)dst.ptr<uchar>(1)[4]);
+    EXPECT_EQ(2, (int)dst.ptr<uchar>(1)[5]);
+    EXPECT_EQ(3, (int)dst.ptr<uchar>(1)[6]);
+    EXPECT_EQ(3, (int)dst.ptr<uchar>(1)[7]);
+    EXPECT_EQ(3, (int)dst.ptr<uchar>(1)[8]);
+}
+
+struct CustomType  // like cv::Keypoint
+{
+    Point2f pt;
+    float size;
+    float angle;
+    float response;
+    int octave;
+    int class_id;
+};
+
+static void test_CustomType(InputArray src_, OutputArray dst_)
+{
+    Mat src = src_.getMat();
+    ASSERT_EQ(sizeof(CustomType), src.elemSize());
+    CV_CheckTypeEQ(src.type(), CV_MAKETYPE(CV_8U, sizeof(CustomType)), "");
+
+    CustomType* kpt = NULL;
+    {
+        Mat dst = dst_.getMat();
+        for (size_t i = 0; i < dst.total(); i++)
+        {
+            kpt = dst.ptr<CustomType>(0) + i;
+            kpt->octave = (int)i;
+        }
+    }
+    const int N = (int)src.total();
+    dst_.create(1, N * 2, rawType<CustomType>());
+    Mat dst = dst_.getMat();
+    for (size_t i = N; i < dst.total(); i++)
+    {
+        kpt = dst.ptr<CustomType>(0) + i;
+        kpt->octave = -(int)i;
+    }
+#if 0 // Compilation error
+    CustomType& kpt = dst.at<CustomType>(0, 5);
+#endif
+}
+
+TEST(Core_InputArray, support_CustomType)
+{
+    std::vector<CustomType> kp1(5);
+    std::vector<CustomType> kp2(3);
+    test_CustomType(rawIn(kp1), rawOut(kp2));
+    ASSERT_EQ((size_t)10, kp2.size());
+    for (int i = 0; i < 3; i++)
+    {
+        EXPECT_EQ(i, kp2[i].octave);
+    }
+    for (int i = 3; i < 5; i++)
+    {
+        EXPECT_EQ(0, kp2[i].octave);
+    }
+    for (int i = 5; i < 10; i++)
+    {
+        EXPECT_EQ(-i, kp2[i].octave);
+    }
+}
+
+TEST(Core_Vectors, issue_13078)
+{
+    float floats_[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    std::vector<float> floats(floats_, floats_ + 8);
+    std::vector<int> ints(4);
+
+    Mat m(4, 1, CV_32FC1, floats.data(), sizeof(floats[0]) * 2);
+
+    m.convertTo(ints, CV_32S);
+
+    ASSERT_EQ(1, ints[0]);
+    ASSERT_EQ(3, ints[1]);
+    ASSERT_EQ(5, ints[2]);
+    ASSERT_EQ(7, ints[3]);
+}
+
+TEST(Core_Vectors, issue_13078_workaround)
+{
+    float floats_[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    std::vector<float> floats(floats_, floats_ + 8);
+    std::vector<int> ints(4);
+
+    Mat m(4, 1, CV_32FC1, floats.data(), sizeof(floats[0]) * 2);
+
+    m.convertTo(Mat(ints), CV_32S);
+
+    ASSERT_EQ(1, ints[0]);
+    ASSERT_EQ(3, ints[1]);
+    ASSERT_EQ(5, ints[2]);
+    ASSERT_EQ(7, ints[3]);
+}
+
+
+#ifdef HAVE_EIGEN
+TEST(Core_Eigen, eigen2cv_check_Mat_type)
+{
+    Mat A(4, 4, CV_32FC1, Scalar::all(0));
+    Eigen::MatrixXf eigen_A;
+    cv2eigen(A, eigen_A);
+
+    Mat_<float> f_mat;
+    EXPECT_NO_THROW(eigen2cv(eigen_A, f_mat));
+    EXPECT_EQ(CV_32FC1, f_mat.type());
+
+    Mat_<double> d_mat;
+    EXPECT_ANY_THROW(eigen2cv(eigen_A, d_mat));
+    //EXPECT_EQ(CV_64FC1, d_mat.type());
+}
+#endif // HAVE_EIGEN
 
 }} // namespace

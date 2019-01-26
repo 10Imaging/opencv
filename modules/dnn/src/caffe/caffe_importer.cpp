@@ -54,7 +54,7 @@
 
 namespace cv {
 namespace dnn {
-CV__DNN_EXPERIMENTAL_NS_BEGIN
+CV__DNN_INLINE_NS_BEGIN
 
 #ifdef HAVE_PROTOBUF
 using ::google::protobuf::RepeatedField;
@@ -278,11 +278,13 @@ public:
         int li;
         for (li = 0; li != netBinary.layer_size(); li++)
         {
-            if (netBinary.layer(li).name() == name)
+            const caffe::LayerParameter& binLayer = netBinary.layer(li);
+            // Break if the layer name is the same and the blobs are not cleared
+            if (binLayer.name() == name && binLayer.blobs_size() != 0)
                 break;
         }
 
-        if (li == netBinary.layer_size() || netBinary.layer(li).blobs_size() == 0)
+        if (li == netBinary.layer_size())
             return;
 
         caffe::LayerParameter* binLayer = netBinary.mutable_layer(li);
@@ -377,6 +379,10 @@ public:
                     layerParams.blobs[1].setTo(1);  // std
                 }
             }
+            else if ("ConvolutionDepthwise" == type)
+            {
+                type = "Convolution";
+            }
 
             int id = dstNet.addLayer(name, type, layerParams);
 
@@ -464,5 +470,5 @@ Net readNetFromCaffe(const std::vector<uchar>& bufferProto, const std::vector<uc
 
 #endif //HAVE_PROTOBUF
 
-CV__DNN_EXPERIMENTAL_NS_END
+CV__DNN_INLINE_NS_END
 }} // namespace

@@ -190,7 +190,7 @@ void traceOpenCLCheck(cl_int status, const char* message)
         CV_OCL_TRACE_CHECK_RESULT(check_result, msg); \
         if (check_result != CL_SUCCESS) \
         { \
-            if (0) { const char* msg_ = (msg); (void)msg_; /* ensure const char* type (cv::String without c_str()) */ } \
+            if (0) { const char* msg_ = (msg); CV_UNUSED(msg_); /* ensure const char* type (cv::String without c_str()) */ } \
             cv::String error_msg = CV_OCL_API_ERROR_MSG(check_result, msg); \
             CV_Error(Error::OpenCLApiCallError, error_msg); \
         } \
@@ -210,7 +210,7 @@ void traceOpenCLCheck(cl_int status, const char* message)
         CV_OCL_TRACE_CHECK_RESULT(check_result, msg); \
         if (check_result != CL_SUCCESS && isRaiseError()) \
         { \
-            if (0) { const char* msg_ = (msg); (void)msg_; /* ensure const char* type (cv::String without c_str()) */ } \
+            if (0) { const char* msg_ = (msg); CV_UNUSED(msg_); /* ensure const char* type (cv::String without c_str()) */ } \
             cv::String error_msg = CV_OCL_API_ERROR_MSG(check_result, msg); \
             CV_Error(Error::OpenCLApiCallError, error_msg); \
         } \
@@ -237,6 +237,20 @@ static const bool CV_OPENCL_DISABLE_BUFFER_RECT_OPERATIONS = utils::getConfigura
         false
 #endif
 );
+
+static const String getBuildExtraOptions()
+{
+    static String param_buildExtraOptions;
+    static bool initialized = false;
+    if (!initialized)
+    {
+        param_buildExtraOptions = utils::getConfigurationParameterString("OPENCV_OPENCL_BUILD_EXTRA_OPTIONS", "");
+        initialized = true;
+        if (!param_buildExtraOptions.empty())
+            CV_LOG_WARNING(NULL, "OpenCL: using extra build options: '" << param_buildExtraOptions << "'");
+    }
+    return param_buildExtraOptions;
+}
 
 #endif // HAVE_OPENCL
 
@@ -880,11 +894,11 @@ bool useOpenCL()
     CoreTLSData* data = getCoreTlsData().get();
     if( data->useOpenCL < 0 )
     {
-        CV_TRY
+        try
         {
             data->useOpenCL = (int)(haveOpenCL() && Device::getDefault().ptr() && Device::getDefault().available()) ? 1 : 0;
         }
-        CV_CATCH_ALL
+        catch (...)
         {
             data->useOpenCL = 0;
         }
@@ -1243,6 +1257,14 @@ struct Device::Impl
         else
             vendorID_ = UNKNOWN_VENDOR;
 
+        const size_t CV_OPENCL_DEVICE_MAX_WORK_GROUP_SIZE = utils::getConfigurationParameterSizeT("OPENCV_OPENCL_DEVICE_MAX_WORK_GROUP_SIZE", 0);
+        if (CV_OPENCL_DEVICE_MAX_WORK_GROUP_SIZE > 0)
+        {
+            const size_t new_maxWorkGroupSize = std::min(maxWorkGroupSize_, CV_OPENCL_DEVICE_MAX_WORK_GROUP_SIZE);
+            if (new_maxWorkGroupSize != maxWorkGroupSize_)
+                CV_LOG_WARNING(NULL, "OpenCL: using workgroup size: " << new_maxWorkGroupSize << " (was " << maxWorkGroupSize_ << ")");
+            maxWorkGroupSize_ = new_maxWorkGroupSize;
+        }
 #if 0
         if (isExtensionSupported("cl_khr_spir"))
         {
@@ -1691,11 +1713,6 @@ static cl_device_id selectOpenCLDevice()
     return NULL;
 }
 #else
-// std::tolower is int->int
-static char char_tolower(char ch)
-{
-    return (char)std::tolower((int)ch);
-}
 static cl_device_id selectOpenCLDevice()
 {
     std::string platform, deviceName;
@@ -1780,7 +1797,7 @@ static cl_device_id selectOpenCLDevice()
     {
         int deviceType = 0;
         std::string tempStrDeviceType = deviceTypes[t];
-        std::transform(tempStrDeviceType.begin(), tempStrDeviceType.end(), tempStrDeviceType.begin(), char_tolower);
+        std::transform(tempStrDeviceType.begin(), tempStrDeviceType.end(), tempStrDeviceType.begin(), details::char_tolower);
 
         if (tempStrDeviceType == "gpu" || tempStrDeviceType == "dgpu" || tempStrDeviceType == "igpu")
             deviceType = Device::TYPE_GPU;
@@ -2763,6 +2780,7 @@ struct Kernel::Impl
         for( int i = 0; i < MAX_ARRS; i++ )
             u[i] = 0;
         haveTempDstUMats = false;
+        haveTempSrcUMats = false;
     }
 
     void cleanupUMats()
@@ -2779,6 +2797,7 @@ struct Kernel::Impl
             }
         nu = 0;
         haveTempDstUMats = false;
+        haveTempSrcUMats = false;
     }
 
     void addUMat(const UMat& m, bool dst)
@@ -2789,6 +2808,8 @@ struct Kernel::Impl
         nu++;
         if(dst && m.u->tempUMat())
             haveTempDstUMats = true;
+        if(m.u->originalUMatData == NULL && m.u->tempUMat())
+            haveTempSrcUMats = true;  // UMat is created on RAW memory (without proper lifetime management, even from Mat)
     }
 
     void addImage(const Image2D& image)
@@ -2826,6 +2847,7 @@ struct Kernel::Impl
     int nu;
     std::list<Image2D> images;
     bool haveTempDstUMats;
+    bool haveTempSrcUMats;
 };
 
 }} // namespace cv::ocl
@@ -2977,8 +2999,8 @@ int Kernel::set(int i, const KernelArg& arg)
     cl_int status = 0;
     if( arg.m )
     {
-        int accessFlags = ((arg.flags & KernelArg::READ_ONLY) ? ACCESS_READ : 0) +
-                          ((arg.flags & KernelArg::WRITE_ONLY) ? ACCESS_WRITE : 0);
+        AccessFlag accessFlags = ((arg.flags & KernelArg::READ_ONLY) ? ACCESS_READ : static_cast<AccessFlag>(0)) |
+                                 ((arg.flags & KernelArg::WRITE_ONLY) ? ACCESS_WRITE : static_cast<AccessFlag>(0));
         bool ptronly = (arg.flags & KernelArg::PTR_ONLY) != 0;
         cl_mem h = (cl_mem)arg.m->handle(accessFlags);
 
@@ -3055,7 +3077,7 @@ int Kernel::set(int i, const KernelArg& arg)
                 i += 3;
             }
         }
-        p->addUMat(*arg.m, (accessFlags & ACCESS_WRITE) != 0);
+        p->addUMat(*arg.m, !!(accessFlags & ACCESS_WRITE));
         return i;
     }
     status = clSetKernelArg(p->handle, (cl_uint)i, arg.sz, arg.obj);
@@ -3078,7 +3100,7 @@ bool Kernel::run(int dims, size_t _globalsize[], size_t _localsize[],
             dims == 1 ? 64 : dims == 2 ? (i == 0 ? 256 : 8) : dims == 3 ? (8>>(int)(i>0)) : 1;
         CV_Assert( val > 0 );
         total *= _globalsize[i];
-        if (_globalsize[i] == 1)
+        if (_globalsize[i] == 1 && !_localsize)
             val = 1;
         globalsize[i] = divUp(_globalsize[i], (unsigned int)val) * val;
     }
@@ -3099,6 +3121,8 @@ bool Kernel::Impl::run(int dims, size_t globalsize[], size_t localsize[],
     cl_command_queue qq = getQueue(q);
     if (haveTempDstUMats)
         sync = true;
+    if (haveTempSrcUMats)
+        sync = true;
     if (timeNS)
         sync = true;
     cl_event asyncEvent = 0;
@@ -3109,9 +3133,9 @@ bool Kernel::Impl::run(int dims, size_t globalsize[], size_t localsize[],
     if (retval != CL_SUCCESS)
 #endif
     {
-        cv::String msg = cv::format("clEnqueueNDRangeKernel('%s', dims=%d, globalsize=%dx%dx%d, localsize=%s) sync=%s", name.c_str(), (int)dims,
+        cv::String msg = cv::format("clEnqueueNDRangeKernel('%s', dims=%d, globalsize=%zux%zux%zu, localsize=%s) sync=%s", name.c_str(), (int)dims,
                         globalsize[0], (dims > 1 ? globalsize[1] : 1), (dims > 2 ? globalsize[2] : 1),
-                        (localsize ? cv::format("%dx%dx%d", localsize[0], (dims > 1 ? localsize[1] : 1), (dims > 2 ? localsize[2] : 1)) : cv::String("NULL")).c_str(),
+                        (localsize ? cv::format("%zux%zux%zu", localsize[0], (dims > 1 ? localsize[1] : 1), (dims > 2 ? localsize[2] : 1)) : cv::String("NULL")).c_str(),
                         sync ? "true" : "false"
                         );
         if (retval != CL_SUCCESS)
@@ -3322,7 +3346,7 @@ struct ProgramSource::Impl
         default:
             CV_Error(Error::StsInternal, "Internal error");
         }
-        sourceHash_ = cv::format("%08llx", hash);
+        sourceHash_ = cv::format("%08jx", (uintmax_t)hash);
         isHashUpdated = true;
     }
 
@@ -3522,6 +3546,9 @@ struct Program::Impl
                 buildflags = joinBuildOptions(buildflags, " -D AMD_DEVICE");
             else if (device.isIntel())
                 buildflags = joinBuildOptions(buildflags, " -D INTEL_DEVICE");
+            const String param_buildExtraOptions = getBuildExtraOptions();
+            if (!param_buildExtraOptions.empty())
+                buildflags = joinBuildOptions(buildflags, param_buildExtraOptions);
         }
         compile(ctx, src_, errmsg);
     }
@@ -4521,13 +4548,13 @@ public:
     }
 
     UMatData* defaultAllocate(int dims, const int* sizes, int type, void* data, size_t* step,
-            int flags, UMatUsageFlags usageFlags) const
+            AccessFlag flags, UMatUsageFlags usageFlags) const
     {
         UMatData* u = matStdAllocator->allocate(dims, sizes, type, data, step, flags, usageFlags);
         return u;
     }
 
-    void getBestFlags(const Context& ctx, int /*flags*/, UMatUsageFlags usageFlags, int& createFlags, int& flags0) const
+    void getBestFlags(const Context& ctx, AccessFlag /*flags*/, UMatUsageFlags usageFlags, int& createFlags, UMatData::MemoryFlag& flags0) const
     {
         const Device& dev = ctx.device(0);
         createFlags = 0;
@@ -4535,13 +4562,13 @@ public:
             createFlags |= CL_MEM_ALLOC_HOST_PTR;
 
         if( dev.hostUnifiedMemory() )
-            flags0 = 0;
+            flags0 = static_cast<UMatData::MemoryFlag>(0);
         else
             flags0 = UMatData::COPY_ON_MAP;
     }
 
     UMatData* allocate(int dims, const int* sizes, int type,
-                       void* data, size_t* step, int flags, UMatUsageFlags usageFlags) const CV_OVERRIDE
+                       void* data, size_t* step, AccessFlag flags, UMatUsageFlags usageFlags) const CV_OVERRIDE
     {
         if(!useOpenCL())
             return defaultAllocate(dims, sizes, type, data, step, flags, usageFlags);
@@ -4557,7 +4584,8 @@ public:
         Context& ctx = Context::getDefault();
         flushCleanupQueue();
 
-        int createFlags = 0, flags0 = 0;
+        int createFlags = 0;
+        UMatData::MemoryFlag flags0 = static_cast<UMatData::MemoryFlag>(0);
         getBestFlags(ctx, flags, usageFlags, createFlags, flags0);
 
         void* handle = NULL;
@@ -4605,7 +4633,7 @@ public:
         return u;
     }
 
-    bool allocate(UMatData* u, int accessFlags, UMatUsageFlags usageFlags) const CV_OVERRIDE
+    bool allocate(UMatData* u, AccessFlag accessFlags, UMatUsageFlags usageFlags) const CV_OVERRIDE
     {
         if(!u)
             return false;
@@ -4618,12 +4646,13 @@ public:
         {
             CV_Assert(u->origdata != 0);
             Context& ctx = Context::getDefault();
-            int createFlags = 0, flags0 = 0;
+            int createFlags = 0;
+            UMatData::MemoryFlag flags0 = static_cast<UMatData::MemoryFlag>(0);
             getBestFlags(ctx, accessFlags, usageFlags, createFlags, flags0);
 
             cl_context ctx_handle = (cl_context)ctx.ptr();
             int allocatorFlags = 0;
-            int tempUMatFlags = 0;
+            UMatData::MemoryFlag tempUMatFlags = static_cast<UMatData::MemoryFlag>(0);
             void* handle = NULL;
             cl_int retval = CL_SUCCESS;
 
@@ -4708,7 +4737,7 @@ public:
             u->flags |= tempUMatFlags;
             u->allocatorFlags_ = allocatorFlags;
         }
-        if(accessFlags & ACCESS_WRITE)
+        if (!!(accessFlags & ACCESS_WRITE))
             u->markHostCopyObsolete(true);
         return true;
     }
@@ -4754,7 +4783,7 @@ public:
         CV_Assert(u->handle != 0);
         CV_Assert(u->mapcount == 0);
 
-        if (u->flags & UMatData::ASYNC_CLEANUP)
+        if (!!(u->flags & UMatData::ASYNC_CLEANUP))
             addToCleanupQueue(u);
         else
             deallocate_(u);
@@ -4762,6 +4791,10 @@ public:
 
     void deallocate_(UMatData* u) const
     {
+#ifdef _WIN32
+        if (cv::__termination)  // process is not in consistent state (after ExitProcess call) and terminating
+            return;             // avoid any OpenCL calls
+#endif
         if(u->tempUMat())
         {
             CV_Assert(u->origdata);
@@ -4929,11 +4962,11 @@ public:
     }
 
     // synchronized call (external UMatDataAutoLock, see UMat::getMat)
-    void map(UMatData* u, int accessFlags) const CV_OVERRIDE
+    void map(UMatData* u, AccessFlag accessFlags) const CV_OVERRIDE
     {
         CV_Assert(u && u->handle);
 
-        if(accessFlags & ACCESS_WRITE)
+        if (!!(accessFlags & ACCESS_WRITE))
             u->markDeviceCopyObsolete(true);
 
         cl_command_queue q = (cl_command_queue)Queue::getDefault().ptr();
@@ -5000,7 +5033,7 @@ public:
             }
         }
 
-        if( (accessFlags & ACCESS_READ) != 0 && u->hostCopyObsolete() )
+        if (!!(accessFlags & ACCESS_READ) && u->hostCopyObsolete())
         {
             AlignedDataPtr<false, true> alignedPtr(u->data, u->size, CV_OPENCL_DATA_PTR_ALIGNMENT);
 #ifdef HAVE_OPENCL_SVM
@@ -5740,7 +5773,7 @@ void convertFromBuffer(void* cl_mem_buffer, size_t step, int rows, int cols, int
     dst.u = new UMatData(getOpenCLAllocator());
     dst.u->data            = 0;
     dst.u->allocatorFlags_ = 0; // not allocated from any OpenCV buffer pool
-    dst.u->flags           = 0;
+    dst.u->flags           = static_cast<UMatData::MemoryFlag>(0);
     dst.u->handle          = cl_mem_buffer;
     dst.u->origdata        = 0;
     dst.u->prevAllocator   = 0;
@@ -5984,10 +6017,13 @@ const char* typeToStr(int type)
         "int", "int2", "int3", "int4", 0, 0, 0, "int8", 0, 0, 0, 0, 0, 0, 0, "int16",
         "float", "float2", "float3", "float4", 0, 0, 0, "float8", 0, 0, 0, 0, 0, 0, 0, "float16",
         "double", "double2", "double3", "double4", 0, 0, 0, "double8", 0, 0, 0, 0, 0, 0, 0, "double16",
-        "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?"
+        "half", "half2", "half3", "half4", 0, 0, 0, "half8", 0, 0, 0, 0, 0, 0, 0, "half16",
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     };
     int cn = CV_MAT_CN(type), depth = CV_MAT_DEPTH(type);
-    return cn > 16 ? "?" : tab[depth*16 + cn-1];
+    const char* result = cn > 16 ? 0 : tab[depth*16 + cn-1];
+    CV_Assert(result);
+    return result;
 }
 
 const char* memopTypeToStr(int type)
@@ -6001,10 +6037,13 @@ const char* memopTypeToStr(int type)
         "int", "int2", "int3", "int4", 0, 0, 0, "int8", 0, 0, 0, 0, 0, 0, 0, "int16",
         "int", "int2", "int3", "int4", 0, 0, 0, "int8", 0, 0, 0, 0, 0, 0, 0, "int16",
         "ulong", "ulong2", "ulong3", "ulong4", 0, 0, 0, "ulong8", 0, 0, 0, 0, 0, 0, 0, "ulong16",
-        "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?"
+        "short", "short2", "short3", "short4", 0, 0, 0, "short8", 0, 0, 0, 0, 0, 0, 0, "short16",
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     };
     int cn = CV_MAT_CN(type), depth = CV_MAT_DEPTH(type);
-    return cn > 16 ? "?" : tab[depth*16 + cn-1];
+    const char* result = cn > 16 ? 0 : tab[depth*16 + cn-1];
+    CV_Assert(result);
+    return result;
 }
 
 const char* vecopTypeToStr(int type)
@@ -6018,10 +6057,13 @@ const char* vecopTypeToStr(int type)
         "int", "int2", "int3", "int4", 0, 0, 0, "int8", 0, 0, 0, 0, 0, 0, 0, "int16",
         "int", "int2", "int3", "int4", 0, 0, 0, "int8", 0, 0, 0, 0, 0, 0, 0, "int16",
         "ulong", "ulong2", "ulong3", "ulong4", 0, 0, 0, "ulong8", 0, 0, 0, 0, 0, 0, 0, "ulong16",
-        "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?"
+        "short", "short2", "short3", "short4", 0, 0, 0, "short8", 0, 0, 0, 0, 0, 0, 0, "short16",
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     };
     int cn = CV_MAT_CN(type), depth = CV_MAT_DEPTH(type);
-    return cn > 16 ? "?" : tab[depth*16 + cn-1];
+    const char* result = cn > 16 ? 0 : tab[depth*16 + cn-1];
+    CV_Assert(result);
+    return result;
 }
 
 const char* convertTypeStr(int sdepth, int ddepth, int cn, char* buf)

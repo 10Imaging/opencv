@@ -44,7 +44,7 @@
 #include "layers_common.hpp"
 #include "../op_halide.hpp"
 #include "../op_inf_engine.hpp"
-#include "opencv2/imgproc.hpp"
+#include "../op_vkcom.hpp"
 #include <opencv2/dnn/shape_utils.hpp>
 #include <iostream>
 
@@ -153,12 +153,36 @@ public:
     virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&) CV_OVERRIDE
     {
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+        InferenceEngine::Builder::Layer ieLayer = func.initInfEngineBuilderAPI();
+        ieLayer.setName(this->name);
+        return Ptr<BackendNode>(new InfEngineBackendNode(ieLayer));
+#else
         InferenceEngine::LayerParams lp;
         lp.name = this->name;
         lp.precision = InferenceEngine::Precision::FP32;
         return Ptr<BackendNode>(new InfEngineBackendNode(func.initInfEngine(lp)));
+#endif
 #endif  // HAVE_INF_ENGINE
         return Ptr<BackendNode>();
+    }
+
+    virtual Ptr<BackendNode> initVkCom(const std::vector<Ptr<BackendWrapper> >& inputs) CV_OVERRIDE
+    {
+#ifdef HAVE_VULKAN
+        return Ptr<BackendNode>(new VkComBackendNode(inputs, func.initVkCom()));
+#endif  // HAVE_VULKAN
+        return Ptr<BackendNode>();
+    }
+
+    virtual bool tryFuse(Ptr<dnn::Layer>& top) CV_OVERRIDE
+    {
+        return func.tryFuse(top);
+    }
+
+    void getScaleShift(Mat& scale_, Mat& shift_) const CV_OVERRIDE
+    {
+        func.getScaleShift(scale_, shift_);
     }
 
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
@@ -177,16 +201,19 @@ public:
         CV_OCL_RUN(IS_DNN_OPENCL_TARGET(this->preferableTarget),
                    func.applyOCL(inputs_arr, outputs_arr, internals_arr))
 
-        Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
-    }
+        if (inputs_arr.depth() == CV_16S)
+        {
+            Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
+            return;
+        }
 
-    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
-    {
-        CV_TRACE_FUNCTION();
+        std::vector<Mat> inputs, outputs;
+        inputs_arr.getMatVector(inputs);
+        outputs_arr.getMatVector(outputs);
 
         for (size_t i = 0; i < inputs.size(); i++)
         {
-            const Mat &src = *inputs[i];
+            const Mat &src = inputs[i];
             Mat &dst = outputs[i];
             CV_Assert(src.size == dst.size && src.type() == dst.type() &&
                       src.isContinuous() && dst.isContinuous() && src.type() == CV_32F);
@@ -239,7 +266,8 @@ struct ReLUFunctor
     bool supportBackend(int backendId, int)
     {
         return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE ||
-               backendId == DNN_BACKEND_INFERENCE_ENGINE;
+               backendId == DNN_BACKEND_INFERENCE_ENGINE ||
+               backendId == DNN_BACKEND_VKCOM;
     }
 
     void apply(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const
@@ -333,6 +361,12 @@ struct ReLUFunctor
 #endif  // HAVE_HALIDE
 
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+    InferenceEngine::Builder::Layer initInfEngineBuilderAPI()
+    {
+        return InferenceEngine::Builder::ReLULayer("").setNegativeSlope(slope);
+    }
+#else
     InferenceEngine::CNNLayerPtr initInfEngine(InferenceEngine::LayerParams& lp)
     {
         lp.type = "ReLU";
@@ -341,7 +375,22 @@ struct ReLUFunctor
         ieLayer->params["negative_slope"] = format("%f", slope);
         return ieLayer;
     }
+#endif
 #endif  // HAVE_INF_ENGINE
+
+#ifdef HAVE_VULKAN
+    std::shared_ptr<vkcom::OpBase> initVkCom()
+    {
+        std::shared_ptr<vkcom::OpBase> op(new vkcom::OpReLU(slope));
+        return op;
+    }
+#endif  // HAVE_VULKAN
+
+
+
+    bool tryFuse(Ptr<dnn::Layer>&) { return false; }
+
+    void getScaleShift(Mat&, Mat&) const {}
 
     int64 getFLOPSPerElement() const { return 1; }
 };
@@ -436,6 +485,12 @@ struct ReLU6Functor
 #endif  // HAVE_HALIDE
 
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+    InferenceEngine::Builder::Layer initInfEngineBuilderAPI()
+    {
+        return InferenceEngine::Builder::ClampLayer("").setMinValue(minValue).setMaxValue(maxValue);
+    }
+#else
     InferenceEngine::CNNLayerPtr initInfEngine(InferenceEngine::LayerParams& lp)
     {
         lp.type = "Clamp";
@@ -446,7 +501,20 @@ struct ReLU6Functor
         ieLayer->params["max"] = format("%f", maxValue);
         return ieLayer;
     }
+#endif
 #endif  // HAVE_INF_ENGINE
+
+#ifdef HAVE_VULKAN
+    std::shared_ptr<vkcom::OpBase> initVkCom()
+    {
+        // TODO: add vkcom implementation
+        return std::shared_ptr<vkcom::OpBase>();
+    }
+#endif  // HAVE_VULKAN
+
+    bool tryFuse(Ptr<dnn::Layer>&) { return false; }
+
+    void getScaleShift(Mat&, Mat&) const {}
 
     int64 getFLOPSPerElement() const { return 2; }
 };
@@ -510,13 +578,32 @@ struct TanHFunctor
 #endif  // HAVE_HALIDE
 
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+    InferenceEngine::Builder::Layer initInfEngineBuilderAPI()
+    {
+        return InferenceEngine::Builder::TanHLayer("");
+    }
+#else
     InferenceEngine::CNNLayerPtr initInfEngine(InferenceEngine::LayerParams& lp)
     {
         lp.type = "TanH";
         std::shared_ptr<InferenceEngine::CNNLayer> ieLayer(new InferenceEngine::CNNLayer(lp));
         return ieLayer;
     }
+#endif
 #endif  // HAVE_INF_ENGINE
+
+#ifdef HAVE_VULKAN
+    std::shared_ptr<vkcom::OpBase> initVkCom()
+    {
+        // TODO: add vkcom implementation
+        return std::shared_ptr<vkcom::OpBase>();
+    }
+#endif  // HAVE_VULKAN
+
+    bool tryFuse(Ptr<dnn::Layer>&) { return false; }
+
+    void getScaleShift(Mat&, Mat&) const {}
 
     int64 getFLOPSPerElement() const { return 1; }
 };
@@ -580,13 +667,32 @@ struct SigmoidFunctor
 #endif  // HAVE_HALIDE
 
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+    InferenceEngine::Builder::Layer initInfEngineBuilderAPI()
+    {
+        return InferenceEngine::Builder::SigmoidLayer("");
+    }
+#else
     InferenceEngine::CNNLayerPtr initInfEngine(InferenceEngine::LayerParams& lp)
     {
         lp.type = "Sigmoid";
         std::shared_ptr<InferenceEngine::CNNLayer> ieLayer(new InferenceEngine::CNNLayer(lp));
         return ieLayer;
     }
+#endif
 #endif  // HAVE_INF_ENGINE
+
+#ifdef HAVE_VULKAN
+    std::shared_ptr<vkcom::OpBase> initVkCom()
+    {
+        // TODO: add vkcom implementation
+        return std::shared_ptr<vkcom::OpBase>();
+    }
+#endif  // HAVE_VULKAN
+
+    bool tryFuse(Ptr<dnn::Layer>&) { return false; }
+
+    void getScaleShift(Mat&, Mat&) const {}
 
     int64 getFLOPSPerElement() const { return 3; }
 };
@@ -652,12 +758,31 @@ struct ELUFunctor
 #endif  // HAVE_HALIDE
 
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+    InferenceEngine::Builder::Layer initInfEngineBuilderAPI()
+    {
+        return InferenceEngine::Builder::ELULayer("");
+    }
+#else
     InferenceEngine::CNNLayerPtr initInfEngine(InferenceEngine::LayerParams& lp)
     {
         lp.type = "ELU";
         return InferenceEngine::CNNLayerPtr(new InferenceEngine::CNNLayer(lp));
     }
+#endif
 #endif  // HAVE_INF_ENGINE
+
+#ifdef HAVE_VULKAN
+    std::shared_ptr<vkcom::OpBase> initVkCom()
+    {
+        // TODO: add vkcom implementation
+        return std::shared_ptr<vkcom::OpBase>();
+    }
+#endif  // HAVE_VULKAN
+
+    bool tryFuse(Ptr<dnn::Layer>&) { return false; }
+
+    void getScaleShift(Mat&, Mat&) const {}
 
     int64 getFLOPSPerElement() const { return 2; }
 };
@@ -668,7 +793,8 @@ struct AbsValFunctor
 
     bool supportBackend(int backendId, int)
     {
-        return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE;
+        return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE ||
+               backendId == DNN_BACKEND_INFERENCE_ENGINE;
     }
 
     void apply(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const
@@ -720,12 +846,34 @@ struct AbsValFunctor
 #endif  // HAVE_HALIDE
 
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+    InferenceEngine::Builder::Layer initInfEngineBuilderAPI()
+    {
+        return InferenceEngine::Builder::ReLULayer("").setNegativeSlope(-1);
+    }
+#else
     InferenceEngine::CNNLayerPtr initInfEngine(InferenceEngine::LayerParams& lp)
     {
-        CV_Error(Error::StsNotImplemented, "Abs");
-        return InferenceEngine::CNNLayerPtr();
+        lp.type = "ReLU";
+        std::shared_ptr<InferenceEngine::ReLULayer> ieLayer(new InferenceEngine::ReLULayer(lp));
+        ieLayer->negative_slope = -1;
+        ieLayer->params["negative_slope"] = "-1.0";
+        return ieLayer;
     }
+#endif
 #endif  // HAVE_INF_ENGINE
+
+#ifdef HAVE_VULKAN
+    std::shared_ptr<vkcom::OpBase> initVkCom()
+    {
+        // TODO: add vkcom implementation
+        return std::shared_ptr<vkcom::OpBase>();
+    }
+#endif  // HAVE_VULKAN
+
+    bool tryFuse(Ptr<dnn::Layer>&) { return false; }
+
+    void getScaleShift(Mat&, Mat&) const {}
 
     int64 getFLOPSPerElement() const { return 1; }
 };
@@ -768,12 +916,31 @@ struct BNLLFunctor
 #endif  // HAVE_HALIDE
 
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+    InferenceEngine::Builder::Layer initInfEngineBuilderAPI()
+    {
+        CV_Error(Error::StsNotImplemented, "");
+    }
+#else
     InferenceEngine::CNNLayerPtr initInfEngine(InferenceEngine::LayerParams& lp)
     {
         CV_Error(Error::StsNotImplemented, "BNLL");
         return InferenceEngine::CNNLayerPtr();
     }
+#endif
 #endif  // HAVE_INF_ENGINE
+
+#ifdef HAVE_VULKAN
+    std::shared_ptr<vkcom::OpBase> initVkCom()
+    {
+        // TODO: add vkcom implementation
+        return std::shared_ptr<vkcom::OpBase>();
+    }
+#endif  // HAVE_VULKAN
+
+    bool tryFuse(Ptr<dnn::Layer>&) { return false; }
+
+    void getScaleShift(Mat&, Mat&) const {}
 
     int64 getFLOPSPerElement() const { return 5; }
 };
@@ -792,7 +959,7 @@ struct PowerFunctor
     bool supportBackend(int backendId, int targetId)
     {
         if (backendId == DNN_BACKEND_INFERENCE_ENGINE)
-            return (targetId != DNN_TARGET_OPENCL && targetId != DNN_TARGET_OPENCL_FP16) || power == 1.0;
+            return (targetId != DNN_TARGET_OPENCL && targetId != DNN_TARGET_OPENCL_FP16) || power == 1.0 || power == 0.5;
         else
             return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE;
     }
@@ -873,16 +1040,69 @@ struct PowerFunctor
 #endif  // HAVE_HALIDE
 
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+    InferenceEngine::Builder::Layer initInfEngineBuilderAPI()
+    {
+        return InferenceEngine::Builder::PowerLayer("").setPower(power)
+                                                       .setScale(scale)
+                                                       .setShift(shift);
+    }
+#else
     InferenceEngine::CNNLayerPtr initInfEngine(InferenceEngine::LayerParams& lp)
     {
-        lp.type = "Power";
-        std::shared_ptr<InferenceEngine::PowerLayer> ieLayer(new InferenceEngine::PowerLayer(lp));
-        ieLayer->power = power;
-        ieLayer->scale = scale;
-        ieLayer->offset = shift;
-        return ieLayer;
+        if (power == 1.0f && scale == 1.0f && shift == 0.0f)
+        {
+            // It looks like there is a bug in Inference Engine for DNN_TARGET_OPENCL and DNN_TARGET_OPENCL_FP16
+            // if power layer do nothing so we replace it to Identity.
+            lp.type = "Split";
+            return std::shared_ptr<InferenceEngine::SplitLayer>(new InferenceEngine::SplitLayer(lp));
+        }
+        else
+        {
+            lp.type = "Power";
+            std::shared_ptr<InferenceEngine::PowerLayer> ieLayer(new InferenceEngine::PowerLayer(lp));
+            ieLayer->power = power;
+            ieLayer->scale = scale;
+            ieLayer->offset = shift;
+            return ieLayer;
+        }
     }
+#endif
 #endif  // HAVE_INF_ENGINE
+
+#ifdef HAVE_VULKAN
+    std::shared_ptr<vkcom::OpBase> initVkCom()
+    {
+        // TODO: add vkcom implementation
+        return std::shared_ptr<vkcom::OpBase>();
+    }
+#endif  // HAVE_VULKAN
+
+    bool tryFuse(Ptr<dnn::Layer>& top)
+    {
+        if (power != 1.0f && shift != 0.0f)
+            return false;
+
+        Mat w, b;
+        top->getScaleShift(w, b);
+        if ((w.empty() && b.empty()) || w.total() > 1 || b.total() > 1)
+            return false;
+
+        float nextScale = w.empty() ? 1.0f : w.at<float>(0);
+        float nextShift = b.empty() ? 0.0f : b.at<float>(0);
+        scale = std::pow(scale, power) * nextScale;
+        shift = nextScale * shift + nextShift;
+        return true;
+    }
+
+    void getScaleShift(Mat& _scale, Mat& _shift) const
+    {
+        if (power == 1.0f)
+        {
+            _scale = Mat(1, 1, CV_32F, Scalar(scale));
+            _shift = Mat(1, 1, CV_32F, Scalar(shift));
+        }
+    }
 
     int64 getFLOPSPerElement() const { return power == 1 ? 2 : 10; }
 };
@@ -892,7 +1112,9 @@ struct ChannelsPReLUFunctor
 {
     typedef ChannelsPReLULayer Layer;
     Mat scale;
+#ifdef HAVE_OPENCL
     UMat scale_umat;
+#endif
 
     explicit ChannelsPReLUFunctor(const Mat& scale_=Mat()) : scale(scale_)
     {
@@ -902,6 +1124,12 @@ struct ChannelsPReLUFunctor
     bool supportBackend(int backendId, int)
     {
         return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE;
+    }
+
+    bool supportBackend(int backendId, int)
+    {
+        return backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE ||
+               backendId == DNN_BACKEND_INFERENCE_ENGINE;
     }
 
     void apply(const float* srcptr, float* dstptr, int len, size_t planeSize, int cn0, int cn1) const
@@ -944,6 +1172,9 @@ struct ChannelsPReLUFunctor
 #ifdef HAVE_OPENCL
     bool applyOCL(InputArrayOfArrays inps, OutputArrayOfArrays outs, OutputArrayOfArrays internals)
     {
+        if (scale_umat.empty())
+            scale.copyTo(scale_umat);
+
         std::vector<UMat> inputs;
         std::vector<UMat> outputs;
 
@@ -982,12 +1213,37 @@ struct ChannelsPReLUFunctor
 #endif  // HAVE_HALIDE
 
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+    InferenceEngine::Builder::Layer initInfEngineBuilderAPI()
+    {
+        InferenceEngine::Builder::PReLULayer ieLayer("");
+        const size_t numChannels = scale.total();
+        ieLayer.setWeights(wrapToInfEngineBlob(scale, {numChannels}, InferenceEngine::Layout::C));
+        return ieLayer;
+    }
+#else
     InferenceEngine::CNNLayerPtr initInfEngine(InferenceEngine::LayerParams& lp)
     {
-        CV_Error(Error::StsNotImplemented, "PReLU");
-        return InferenceEngine::CNNLayerPtr();
+        lp.type = "PReLU";
+        std::shared_ptr<InferenceEngine::PReLULayer> ieLayer(new InferenceEngine::PReLULayer(lp));
+        const size_t numChannels = scale.total();
+        ieLayer->_weights = wrapToInfEngineBlob(scale, {numChannels}, InferenceEngine::Layout::C);
+        return ieLayer;
     }
+#endif
 #endif  // HAVE_INF_ENGINE
+
+#ifdef HAVE_VULKAN
+    std::shared_ptr<vkcom::OpBase> initVkCom()
+    {
+        // TODO: add vkcom implementation
+        return std::shared_ptr<vkcom::OpBase>();
+    }
+#endif  // HAVE_VULKAN
+
+    bool tryFuse(Ptr<dnn::Layer>&) { return false; }
+
+    void getScaleShift(Mat&, Mat&) const {}
 
     int64 getFLOPSPerElement() const { return 1; }
 };

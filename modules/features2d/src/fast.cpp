@@ -401,11 +401,11 @@ static bool openvx_FAST(InputArray _img, std::vector<KeyPoint>& keypoints,
         img.swapHandle();
 #endif
     }
-    catch (RuntimeError & e)
+    catch (const RuntimeError & e)
     {
         VX_DbgThrow(e.what());
     }
-    catch (WrapperError & e)
+    catch (const WrapperError & e)
     {
         VX_DbgThrow(e.what());
     }
@@ -415,7 +415,7 @@ static bool openvx_FAST(InputArray _img, std::vector<KeyPoint>& keypoints,
 
 #endif
 
-static inline int hal_FAST(cv::Mat& src, std::vector<KeyPoint>& keypoints, int threshold, bool nonmax_suppression, int type)
+static inline int hal_FAST(cv::Mat& src, std::vector<KeyPoint>& keypoints, int threshold, bool nonmax_suppression, FastFeatureDetector::DetectorType type)
 {
     if (threshold > 20)
         return CV_HAL_ERROR_NOT_IMPLEMENTED;
@@ -472,9 +472,9 @@ static inline int hal_FAST(cv::Mat& src, std::vector<KeyPoint>& keypoints, int t
     return CV_HAL_ERROR_OK;
 }
 
-void FAST(InputArray _img, std::vector<KeyPoint>& keypoints, int threshold, bool nonmax_suppression, int type)
+void FAST(InputArray _img, std::vector<KeyPoint>& keypoints, int threshold, bool nonmax_suppression, FastFeatureDetector::DetectorType type)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CV_OCL_RUN(_img.isUMat() && type == FastFeatureDetector::TYPE_9_16,
                ocl_FAST(_img, keypoints, threshold, nonmax_suppression, 10000));
@@ -497,10 +497,6 @@ void FAST(InputArray _img, std::vector<KeyPoint>& keypoints, int threshold, bool
         FAST_t<12>(_img, keypoints, threshold, nonmax_suppression);
         break;
     case FastFeatureDetector::TYPE_9_16:
-#ifdef HAVE_TEGRA_OPTIMIZATION
-        if(tegra::useTegra() && tegra::FAST(_img, keypoints, threshold, nonmax_suppression))
-          break;
-#endif
         FAST_t<16>(_img, keypoints, threshold, nonmax_suppression);
         break;
     }
@@ -509,7 +505,7 @@ void FAST(InputArray _img, std::vector<KeyPoint>& keypoints, int threshold, bool
 
 void FAST(InputArray _img, std::vector<KeyPoint>& keypoints, int threshold, bool nonmax_suppression)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     FAST(_img, keypoints, threshold, nonmax_suppression, FastFeatureDetector::TYPE_9_16);
 }
@@ -518,13 +514,19 @@ void FAST(InputArray _img, std::vector<KeyPoint>& keypoints, int threshold, bool
 class FastFeatureDetector_Impl CV_FINAL : public FastFeatureDetector
 {
 public:
-    FastFeatureDetector_Impl( int _threshold, bool _nonmaxSuppression, int _type )
-    : threshold(_threshold), nonmaxSuppression(_nonmaxSuppression), type((short)_type)
+    FastFeatureDetector_Impl( int _threshold, bool _nonmaxSuppression, FastFeatureDetector::DetectorType _type )
+    : threshold(_threshold), nonmaxSuppression(_nonmaxSuppression), type(_type)
     {}
 
     void detect( InputArray _image, std::vector<KeyPoint>& keypoints, InputArray _mask ) CV_OVERRIDE
     {
-        CV_INSTRUMENT_REGION()
+        CV_INSTRUMENT_REGION();
+
+        if(_image.empty())
+        {
+            keypoints.clear();
+            return;
+        }
 
         if(_image.empty())
         {
@@ -552,7 +554,7 @@ public:
         else if(prop == NONMAX_SUPPRESSION)
             nonmaxSuppression = value != 0;
         else if(prop == FAST_N)
-            type = cvRound(value);
+            type = static_cast<FastFeatureDetector::DetectorType>(cvRound(value));
         else
             CV_Error(Error::StsBadArg, "");
     }
@@ -564,7 +566,7 @@ public:
         if(prop == NONMAX_SUPPRESSION)
             return nonmaxSuppression;
         if(prop == FAST_N)
-            return type;
+            return static_cast<int>(type);
         CV_Error(Error::StsBadArg, "");
         return 0;
     }
@@ -575,15 +577,15 @@ public:
     void setNonmaxSuppression(bool f) CV_OVERRIDE { nonmaxSuppression = f; }
     bool getNonmaxSuppression() const CV_OVERRIDE { return nonmaxSuppression; }
 
-    void setType(int type_) CV_OVERRIDE { type = type_; }
-    int getType() const CV_OVERRIDE { return type; }
+    void setType(FastFeatureDetector::DetectorType type_) CV_OVERRIDE{ type = type_; }
+    FastFeatureDetector::DetectorType getType() const CV_OVERRIDE{ return type; }
 
     int threshold;
     bool nonmaxSuppression;
-    int type;
+    FastFeatureDetector::DetectorType type;
 };
 
-Ptr<FastFeatureDetector> FastFeatureDetector::create( int threshold, bool nonmaxSuppression, int type )
+Ptr<FastFeatureDetector> FastFeatureDetector::create( int threshold, bool nonmaxSuppression, FastFeatureDetector::DetectorType type )
 {
     return makePtr<FastFeatureDetector_Impl>(threshold, nonmaxSuppression, type);
 }

@@ -25,13 +25,13 @@ This tutorial code's is shown lines below. You can also download it from
 
 @add_toggle_java
 This tutorial code's is shown lines below. You can also download it from
-[here](https://github.com/opencv/opencv/tree/3.4/samples/java/tutorial_code/objectDetection/cascade_classifier/ObjectDetectionDemo.java)
+[here](https://github.com/opencv/opencv/tree/master/samples/java/tutorial_code/objectDetection/cascade_classifier/ObjectDetectionDemo.java)
 @include samples/java/tutorial_code/objectDetection/cascade_classifier/ObjectDetectionDemo.java
 @end_toggle
 
 @add_toggle_python
 This tutorial code's is shown lines below. You can also download it from
-[here](https://github.com/opencv/opencv/tree/3.4/samples/python/tutorial_code/objectDetection/cascade_classifier/objectDetection.py)
+[here](https://github.com/opencv/opencv/tree/master/samples/python/tutorial_code/objectDetection/cascade_classifier/objectDetection.py)
 @include samples/python/tutorial_code/objectDetection/cascade_classifier/objectDetection.py
 @end_toggle
 

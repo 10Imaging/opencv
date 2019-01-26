@@ -57,28 +57,29 @@ void runIE(Target target, const std::string& xmlPath, const std::string& binPath
     InferencePlugin plugin;
     ExecutableNetwork netExec;
     InferRequest infRequest;
-    TargetDevice targetDevice;
-    switch (target)
-    {
-        case DNN_TARGET_CPU:
-            targetDevice = TargetDevice::eCPU;
-            break;
-        case DNN_TARGET_OPENCL:
-        case DNN_TARGET_OPENCL_FP16:
-            targetDevice = TargetDevice::eGPU;
-            break;
-        case DNN_TARGET_MYRIAD:
-            targetDevice = TargetDevice::eMYRIAD;
-            break;
-        default:
-            CV_Error(Error::StsNotImplemented, "Unknown target");
-    };
-
     try
     {
-        enginePtr = PluginDispatcher({""}).getSuitablePlugin(targetDevice);
+        auto dispatcher = InferenceEngine::PluginDispatcher({""});
+        switch (target)
+        {
+            case DNN_TARGET_CPU:
+                enginePtr = dispatcher.getSuitablePlugin(TargetDevice::eCPU);
+                break;
+            case DNN_TARGET_OPENCL:
+            case DNN_TARGET_OPENCL_FP16:
+                enginePtr = dispatcher.getSuitablePlugin(TargetDevice::eGPU);
+                break;
+            case DNN_TARGET_MYRIAD:
+                enginePtr = dispatcher.getSuitablePlugin(TargetDevice::eMYRIAD);
+                break;
+            case DNN_TARGET_FPGA:
+                enginePtr = dispatcher.getPluginByDevice("HETERO:FPGA,CPU");
+                break;
+            default:
+                CV_Error(Error::StsNotImplemented, "Unknown target");
+        };
 
-        if (targetDevice == TargetDevice::eCPU)
+        if (target == DNN_TARGET_CPU || target == DNN_TARGET_FPGA)
         {
             std::string suffixes[] = {"_avx2", "_sse4", ""};
             bool haveFeature[] = {
@@ -177,9 +178,28 @@ TEST_P(DNNTestOpenVINO, models)
     Target target = (dnn::Target)(int)get<0>(GetParam());
     std::string modelName = get<1>(GetParam());
 
-    if ((modelName == "semantic-segmentation-adas-0001" && target == DNN_TARGET_OPENCL_FP16) ||
-        (modelName == "vehicle-license-plate-detection-barrier-0106"))
+#ifdef INF_ENGINE_RELEASE
+#if INF_ENGINE_RELEASE <= 2018030000
+    if (target == DNN_TARGET_MYRIAD && (modelName == "landmarks-regression-retail-0001" ||
+                                        modelName == "semantic-segmentation-adas-0001" ||
+                                        modelName == "face-reidentification-retail-0001"))
         throw SkipTestException("");
+#elif INF_ENGINE_RELEASE == 2018040000
+    if (modelName == "single-image-super-resolution-0034" ||
+        (target == DNN_TARGET_MYRIAD && (modelName == "license-plate-recognition-barrier-0001" ||
+                                         modelName == "landmarks-regression-retail-0009" ||
+                                          modelName == "semantic-segmentation-adas-0001")))
+        throw SkipTestException("");
+#elif INF_ENGINE_RELEASE == 2018050000
+    if (modelName == "single-image-super-resolution-0063" ||
+        modelName == "single-image-super-resolution-1011" ||
+        modelName == "single-image-super-resolution-1021" ||
+        (target == DNN_TARGET_OPENCL_FP16 && modelName == "face-reidentification-retail-0095") ||
+        (target == DNN_TARGET_MYRIAD && (modelName == "license-plate-recognition-barrier-0001" ||
+                                         modelName == "semantic-segmentation-adas-0001")))
+        throw SkipTestException("");
+#endif
+#endif
 
     std::string precision = (target == DNN_TARGET_OPENCL_FP16 || target == DNN_TARGET_MYRIAD) ? "FP16" : "FP32";
     std::string prefix = utils::fs::join("intel_models",
@@ -190,6 +210,9 @@ TEST_P(DNNTestOpenVINO, models)
 
     std::map<std::string, cv::Mat> inputsMap;
     std::map<std::string, cv::Mat> ieOutputsMap, cvOutputsMap;
+    // Single Myriad device cannot be shared across multiple processes.
+    if (target == DNN_TARGET_MYRIAD)
+        resetMyriadDevice();
     runIE(target, xmlPath, binPath, inputsMap, ieOutputsMap);
     runCV(target, xmlPath, binPath, inputsMap, cvOutputsMap);
 
@@ -231,9 +254,10 @@ static testing::internal::ParamGenerator<String> intelModels()
     return ValuesIn(modelsNames);
 }
 
-INSTANTIATE_TEST_CASE_P(/**/, DNNTestOpenVINO, Combine(
-    Values(DNN_TARGET_CPU, DNN_TARGET_OPENCL, DNN_TARGET_OPENCL_FP16), intelModels()
-));
+INSTANTIATE_TEST_CASE_P(/**/,
+    DNNTestOpenVINO,
+    Combine(testing::ValuesIn(getAvailableTargets(DNN_BACKEND_INFERENCE_ENGINE)), intelModels())
+);
 
 }}
 #endif  // HAVE_INF_ENGINE

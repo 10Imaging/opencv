@@ -10,6 +10,7 @@ Implementation of Batch Normalization layer.
 */
 
 #include "../precomp.hpp"
+#include "layers_common.hpp"
 #include "../op_halide.hpp"
 #include "../op_inf_engine.hpp"
 #include <opencv2/dnn/shape_utils.hpp>
@@ -150,8 +151,8 @@ public:
     virtual bool supportBackend(int backendId) CV_OVERRIDE
     {
         return backendId == DNN_BACKEND_OPENCV ||
-               backendId == DNN_BACKEND_HALIDE && haveHalide() ||
-               backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine();
+               (backendId == DNN_BACKEND_HALIDE && haveHalide()) ||
+               (backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine());
     }
 
 #ifdef HAVE_OPENCL
@@ -172,8 +173,8 @@ public:
 
         if (umat_weight.empty())
         {
-            umat_weight = weights_.getUMat(ACCESS_READ);
-            umat_bias = bias_.getUMat(ACCESS_READ);
+            weights_.copyTo(umat_weight);
+            bias_.copyTo(umat_bias);
         }
 
         UMat &inpBlob = inputs[0];
@@ -230,22 +231,23 @@ public:
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
 
-        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget) &&
-                   OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
+        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget),
                    forward_ocl(inputs_arr, outputs_arr, internals_arr))
 
-        Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
-    }
+        if (inputs_arr.depth() == CV_16S)
+        {
+            forward_fallback(inputs_arr, outputs_arr, internals_arr);
+            return;
+        }
 
-    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
-    {
-        CV_TRACE_FUNCTION();
-        CV_TRACE_ARG_VALUE(name, "name", name.c_str());
+        std::vector<Mat> inputs, outputs;
+        inputs_arr.getMatVector(inputs);
+        outputs_arr.getMatVector(outputs);
 
         CV_Assert(blobs.size() >= 2);
         CV_Assert(inputs.size() == 1);
 
-        Mat &inpBlob = *inputs[0];
+        Mat &inpBlob = inputs[0];
         CV_Assert(inpBlob.dims == 2 || inpBlob.dims == 4);
         int rows = inpBlob.dims > 2 ? inpBlob.size[2] : 1;
         int cols = inpBlob.dims > 2 ? inpBlob.size[3] : 1;
@@ -283,10 +285,10 @@ public:
                 v_float32x4 x1 = v_load(srcptr + i + 4);
                 v_float32x4 x2 = v_load(srcptr + i + 8);
                 v_float32x4 x3 = v_load(srcptr + i + 12);
-                x0 = v_muladd(x0, w, b);
-                x1 = v_muladd(x1, w, b);
-                x2 = v_muladd(x2, w, b);
-                x3 = v_muladd(x3, w, b);
+                x0 = v_muladd(x0, wV, bV);
+                x1 = v_muladd(x1, wV, bV);
+                x2 = v_muladd(x2, wV, bV);
+                x3 = v_muladd(x3, wV, bV);
                 v_store(dstptr + i, x0);
                 v_store(dstptr + i + 4, x1);
                 v_store(dstptr + i + 8, x2);
@@ -347,6 +349,14 @@ public:
     virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&) CV_OVERRIDE
     {
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+        InferenceEngine::Builder::ScaleShiftLayer ieLayer(name);
+
+        const size_t numChannels = weights_.total();
+        ieLayer.setWeights(wrapToInfEngineBlob(weights_, {numChannels}, InferenceEngine::Layout::C));
+        ieLayer.setBiases(wrapToInfEngineBlob(bias_, {numChannels}, InferenceEngine::Layout::C));
+        return Ptr<BackendNode>(new InfEngineBackendNode(ieLayer));
+#else
         InferenceEngine::LayerParams lp;
         lp.name = name;
         lp.type = "ScaleShift";
@@ -358,6 +368,7 @@ public:
         ieLayer->_biases = wrapToInfEngineBlob(bias_, {numChannels}, InferenceEngine::Layout::C);
 
         return Ptr<BackendNode>(new InfEngineBackendNode(ieLayer));
+#endif
 #endif  // HAVE_INF_ENGINE
         return Ptr<BackendNode>();
     }
@@ -365,7 +376,7 @@ public:
     virtual int64 getFLOPS(const std::vector<MatShape> &inputs,
                            const std::vector<MatShape> &outputs) const CV_OVERRIDE
     {
-        (void)outputs; // suppress unused variable warning
+        CV_UNUSED(outputs); // suppress unused variable warning
 
         int64 flops = 0;
         for(int i = 0; i < inputs.size(); i++)

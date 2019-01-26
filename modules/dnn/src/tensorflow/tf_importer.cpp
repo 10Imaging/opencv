@@ -24,7 +24,7 @@ Implementation of Tensorflow models parser
 
 namespace cv {
 namespace dnn {
-CV__DNN_EXPERIMENTAL_NS_BEGIN
+CV__DNN_INLINE_NS_BEGIN
 
 #if HAVE_PROTOBUF
 
@@ -156,6 +156,7 @@ void blobFromTensor(const tensorflow::TensorProto &tensor, Mat &dstBlob)
     }
 }
 
+#if 0
 void printList(const tensorflow::AttrValue::ListValue &val)
 {
     std::cout << "(";
@@ -235,6 +236,7 @@ void printLayerAttr(const tensorflow::NodeDef &layer)
         std::cout << std::endl;
     }
 }
+#endif
 
 bool hasLayerAttr(const tensorflow::NodeDef &layer, const std::string &name)
 {
@@ -937,7 +939,7 @@ void TFImporter::populateNet(Net dstNet)
             if (getDataLayout(name, data_layouts) == DATA_LAYOUT_UNKNOWN)
                 data_layouts[name] = DATA_LAYOUT_NHWC;
         }
-        else if (type == "BiasAdd" || type == "Add")
+        else if (type == "BiasAdd" || type == "Add" || type == "Sub")
         {
             bool haveConst = false;
             for(int ii = 0; !haveConst && ii < layer.input_size(); ++ii)
@@ -951,6 +953,8 @@ void TFImporter::populateNet(Net dstNet)
             {
                 Mat values = getTensorContent(getConstBlob(layer, value_id));
                 CV_Assert(values.type() == CV_32FC1);
+                if (type == "Sub")
+                    values *= -1.0f;
 
                 int id;
                 if (values.total() == 1)  // is a scalar.
@@ -971,6 +975,12 @@ void TFImporter::populateNet(Net dstNet)
             else
             {
                 layerParams.set("operation", "sum");
+                if (type == "Sub")
+                {
+                    static float subCoeffs[] = {1.f, -1.f};
+                    layerParams.set("coeff", DictValue::arrayReal<float*>(subCoeffs, 2));
+                }
+
                 int id = dstNet.addLayer(name, "Eltwise", layerParams);
                 layer_id[name] = id;
 
@@ -1264,14 +1274,31 @@ void TFImporter::populateNet(Net dstNet)
                 axis = toNCHW(axis);
             layerParams.set("axis", axis);
 
-            int id = dstNet.addLayer(name, "Concat", layerParams);
-            layer_id[name] = id;
-
-
+            // input(0) or input(n-1) is concat_dim
             int from = (type == "Concat" ? 1 : 0);
             int to = (type == "Concat" ? layer.input_size() : layer.input_size() - 1);
 
-            // input(0) or input(n-1) is concat_dim
+            for (int ii = from; ii < to; ii++)
+            {
+                Pin inp = parsePin(layer.input(ii));
+                if (layer_id.find(inp.name) == layer_id.end())
+                {
+                    // There are constant inputs.
+                    LayerParams lp;
+                    lp.name = inp.name;
+                    lp.type = "Const";
+                    lp.blobs.resize(1);
+                    blobFromTensor(getConstBlob(layer, value_id, ii), lp.blobs.back());
+                    CV_Assert_N(!lp.blobs[0].empty(), lp.blobs[0].type() == CV_32F);
+
+                    int constInpId = dstNet.addLayer(lp.name, lp.type, lp);
+                    layer_id[lp.name] = constInpId;
+                }
+            }
+
+            int id = dstNet.addLayer(name, "Concat", layerParams);
+            layer_id[name] = id;
+
             for (int ii = from; ii < to; ii++)
             {
                 Pin inp = parsePin(layer.input(ii));
@@ -1950,5 +1977,34 @@ Net readNetFromTensorflow(const std::vector<uchar>& bufferModel, const std::vect
                                  bufferConfigPtr, bufferConfig.size());
 }
 
-CV__DNN_EXPERIMENTAL_NS_END
+void writeTextGraph(const String& _model, const String& output)
+{
+    String model = _model;
+    const std::string modelExt = model.substr(model.rfind('.') + 1);
+    if (modelExt != "pb")
+        CV_Error(Error::StsNotImplemented, "Only TensorFlow models support export to text file");
+
+    tensorflow::GraphDef net;
+    ReadTFNetParamsFromBinaryFileOrDie(model.c_str(), &net);
+
+    sortByExecutionOrder(net);
+
+    RepeatedPtrField<tensorflow::NodeDef>::iterator it;
+    for (it = net.mutable_node()->begin(); it != net.mutable_node()->end(); ++it)
+    {
+        if (it->op() == "Const")
+        {
+            it->mutable_attr()->at("value").mutable_tensor()->clear_tensor_content();
+        }
+    }
+
+    std::string content;
+    google::protobuf::TextFormat::PrintToString(net, &content);
+
+    std::ofstream ofs(output.c_str());
+    ofs << content;
+    ofs.close();
+}
+
+CV__DNN_INLINE_NS_END
 }} // namespace

@@ -46,7 +46,7 @@ namespace ocl {
 
 Context& initializeContextFromVA(VADisplay display, bool tryInterop)
 {
-    (void)display; (void)tryInterop;
+    CV_UNUSED(display); CV_UNUSED(tryInterop);
 #if !defined(HAVE_VA)
     NO_VA_SUPPORT_ERROR;
 #else  // !HAVE_VA
@@ -340,8 +340,8 @@ static void copy_convert_yv12_to_bgr(const VAImage& image, const unsigned char* 
             1.5959997177f
         };
 
-    CV_CheckEQ(image.format.fourcc, VA_FOURCC_YV12, "Unexpected image format");
-    CV_CheckEQ(image.num_planes, 3, "");
+    CV_CheckEQ((size_t)image.format.fourcc, (size_t)VA_FOURCC_YV12, "Unexpected image format");
+    CV_CheckEQ((size_t)image.num_planes, (size_t)3, "");
 
     const size_t srcOffsetY = image.offsets[0];
     const size_t srcOffsetV = image.offsets[1];
@@ -417,8 +417,8 @@ static void copy_convert_bgr_to_yv12(const VAImage& image, const Mat& bgr, unsig
             -0.2909994125f, 0.438999176f, -0.3679990768f, -0.0709991455f
         };
 
-    CV_CheckEQ(image.format.fourcc, VA_FOURCC_YV12, "Unexpected image format");
-    CV_CheckEQ(image.num_planes, 3, "");
+    CV_CheckEQ((size_t)image.format.fourcc, (size_t)VA_FOURCC_YV12, "Unexpected image format");
+    CV_CheckEQ((size_t)image.num_planes, (size_t)3, "");
 
     const size_t dstOffsetY = image.offsets[0];
     const size_t dstOffsetV = image.offsets[1];
@@ -485,7 +485,7 @@ static void copy_convert_bgr_to_yv12(const VAImage& image, const Mat& bgr, unsig
 
 void convertToVASurface(VADisplay display, InputArray src, VASurfaceID surface, Size size)
 {
-    (void)display; (void)src; (void)surface; (void)size;
+    CV_UNUSED(display); CV_UNUSED(src); CV_UNUSED(surface); CV_UNUSED(size);
 #if !defined(HAVE_VA)
     NO_VA_SUPPORT_ERROR;
 #else  // !HAVE_VA
@@ -589,7 +589,7 @@ void convertToVASurface(VADisplay display, InputArray src, VASurfaceID surface, 
 
 void convertFromVASurface(VADisplay display, VASurfaceID surface, Size size, OutputArray dst)
 {
-    (void)display; (void)surface; (void)dst; (void)size;
+    CV_UNUSED(display); CV_UNUSED(surface); CV_UNUSED(dst); CV_UNUSED(size);
 #if !defined(HAVE_VA)
     NO_VA_SUPPORT_ERROR;
 #else  // !HAVE_VA
