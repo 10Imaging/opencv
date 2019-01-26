@@ -40,7 +40,7 @@ TEST(Test_TensorFlow, read_inception)
     ASSERT_TRUE(!sample.empty());
     Mat input;
     resize(sample, input, Size(224, 224));
-    input -= 128; // mean sub
+    input -= Scalar::all(117); // mean sub
 
     Mat inputBlob = blobFromImage(input);
 
@@ -62,8 +62,7 @@ TEST(Test_TensorFlow, inception_accuracy)
 
     Mat sample = imread(_tf("grace_hopper_227.png"));
     ASSERT_TRUE(!sample.empty());
-    resize(sample, sample, Size(224, 224));
-    Mat inputBlob = blobFromImage(sample);
+    Mat inputBlob = blobFromImage(sample, 1.0, Size(224, 224), Scalar(), /*swapRB*/true);
 
     net.setInput(inputBlob, "input");
     Mat out = net.forward("softmax2");
@@ -102,7 +101,9 @@ public:
 
             string dataConfig;
             if (hasText)
+            {
                 ASSERT_TRUE(readFileInMemory(netConfig, dataConfig));
+            }
 
             net = readNetFromTensorflow(dataModel.c_str(), dataModel.size(),
                                         dataConfig.c_str(), dataConfig.size());
@@ -135,17 +136,21 @@ TEST_P(Test_TensorFlow_layers, padding)
     runTensorFlowNet("padding_same");
     runTensorFlowNet("padding_valid");
     runTensorFlowNet("spatial_padding");
+    runTensorFlowNet("keras_pad_concat");
 }
 
-TEST_P(Test_TensorFlow_layers, eltwise_add_mul)
+TEST_P(Test_TensorFlow_layers, eltwise)
 {
     runTensorFlowNet("eltwise_add_mul");
+    runTensorFlowNet("eltwise_sub");
 }
 
 TEST_P(Test_TensorFlow_layers, pad_and_concat)
 {
+#if defined(INF_ENGINE_RELEASE) && INF_ENGINE_RELEASE < 2018030000
     if (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD)
-        throw SkipTestException("");
+        throw SkipTestException("Test is enabled starts from OpenVINO 2018R3");
+#endif
     runTensorFlowNet("pad_and_concat");
 }
 
@@ -180,8 +185,10 @@ TEST_P(Test_TensorFlow_layers, pooling)
 // TODO: fix tests and replace to pooling
 TEST_P(Test_TensorFlow_layers, ave_pool_same)
 {
+#if defined(INF_ENGINE_RELEASE) && INF_ENGINE_RELEASE < 2018030000
     if (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD)
-        throw SkipTestException("");
+        throw SkipTestException("Test is enabled starts from OpenVINO 2018R3");
+#endif
     runTensorFlowNet("ave_pool_same");
 }
 
@@ -218,15 +225,28 @@ TEST_P(Test_TensorFlow_layers, reshape)
 TEST_P(Test_TensorFlow_layers, flatten)
 {
     if (backend == DNN_BACKEND_INFERENCE_ENGINE &&
-        (target == DNN_TARGET_OPENCL || target == DNN_TARGET_OPENCL_FP16))
+        (target == DNN_TARGET_OPENCL || target == DNN_TARGET_OPENCL_FP16 || target == DNN_TARGET_MYRIAD))
         throw SkipTestException("");
     runTensorFlowNet("flatten", true);
     runTensorFlowNet("unfused_flatten");
     runTensorFlowNet("unfused_flatten_unknown_batch");
 }
 
+TEST_P(Test_TensorFlow_layers, unfused_flatten)
+{
+    if (backend == DNN_BACKEND_INFERENCE_ENGINE &&
+        (target == DNN_TARGET_OPENCL || target == DNN_TARGET_OPENCL_FP16))
+        throw SkipTestException("");
+    runTensorFlowNet("unfused_flatten");
+    runTensorFlowNet("unfused_flatten_unknown_batch");
+}
+
 TEST_P(Test_TensorFlow_layers, leaky_relu)
 {
+#if defined(INF_ENGINE_RELEASE) && INF_ENGINE_RELEASE == 2018050000
+    if (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_OPENCL)
+        throw SkipTestException("");
+#endif
     runTensorFlowNet("leaky_relu_order1");
     runTensorFlowNet("leaky_relu_order2");
     runTensorFlowNet("leaky_relu_order3");
@@ -296,7 +316,7 @@ TEST_P(Test_TensorFlow_nets, Inception_v2_SSD)
 
     Net net = readNetFromTensorflow(model, proto);
     Mat img = imread(findDataFile("dnn/street.png", false));
-    Mat blob = blobFromImage(img, 1.0f / 127.5, Size(300, 300), Scalar(127.5, 127.5, 127.5), true, false);
+    Mat blob = blobFromImage(img, 1.0f, Size(300, 300), Scalar(), true, false);
 
     net.setPreferableBackend(backend);
     net.setPreferableTarget(target);
@@ -310,36 +330,70 @@ TEST_P(Test_TensorFlow_nets, Inception_v2_SSD)
                                     0, 3, 0.75838411, 0.44668293, 0.45907149, 0.49459291, 0.52197015,
                                     0, 10, 0.95932811, 0.38349164, 0.32528657, 0.40387636, 0.39165527,
                                     0, 10, 0.93973452, 0.66561931, 0.37841269, 0.68074018, 0.42907384);
-    double scoreDiff = (target == DNN_TARGET_OPENCL_FP16 || target == DNN_TARGET_MYRIAD) ? 5e-3 : default_l1;
+    double scoreDiff = (target == DNN_TARGET_OPENCL_FP16 || target == DNN_TARGET_MYRIAD) ? 0.0097 : default_l1;
     double iouDiff = (target == DNN_TARGET_OPENCL_FP16 || target == DNN_TARGET_MYRIAD) ? 0.09 : default_lInf;
     normAssertDetections(ref, out, "", 0.5, scoreDiff, iouDiff);
 }
 
-TEST_P(Test_TensorFlow_nets, Inception_v2_Faster_RCNN)
+TEST_P(Test_TensorFlow_nets, MobileNet_v1_SSD)
 {
+    checkBackend();
+
+    std::string model = findDataFile("dnn/ssd_mobilenet_v1_coco_2017_11_17.pb", false);
+    std::string proto = findDataFile("dnn/ssd_mobilenet_v1_coco_2017_11_17.pbtxt", false);
+
+    Net net = readNetFromTensorflow(model, proto);
+    Mat img = imread(findDataFile("dnn/dog416.png", false));
+    Mat blob = blobFromImage(img, 1.0f, Size(300, 300), Scalar(), true, false);
+
+    net.setPreferableBackend(backend);
+    net.setPreferableTarget(target);
+
+    net.setInput(blob);
+    Mat out = net.forward();
+
+    Mat ref = blobFromNPY(findDataFile("dnn/tensorflow/ssd_mobilenet_v1_coco_2017_11_17.detection_out.npy"));
+    float scoreDiff = (target == DNN_TARGET_OPENCL_FP16 || target == DNN_TARGET_MYRIAD) ? 7e-3 : 1.5e-5;
+    float iouDiff = (target == DNN_TARGET_OPENCL_FP16 || target == DNN_TARGET_MYRIAD) ? 0.012 : 1e-3;
+    normAssertDetections(ref, out, "", 0.3, scoreDiff, iouDiff);
+}
+
+TEST_P(Test_TensorFlow_nets, Faster_RCNN)
+{
+    static std::string names[] = {"faster_rcnn_inception_v2_coco_2018_01_28",
+                                  "faster_rcnn_resnet50_coco_2018_01_28"};
+
     checkBackend();
     if ((backend == DNN_BACKEND_INFERENCE_ENGINE && target != DNN_TARGET_CPU) ||
         (backend == DNN_BACKEND_OPENCV && target == DNN_TARGET_OPENCL_FP16))
         throw SkipTestException("");
 
-    std::string proto = findDataFile("dnn/faster_rcnn_inception_v2_coco_2018_01_28.pbtxt", false);
-    std::string model = findDataFile("dnn/faster_rcnn_inception_v2_coco_2018_01_28.pb", false);
+    double scoresDiff = backend == DNN_BACKEND_INFERENCE_ENGINE ? 2.9e-5 : 1e-5;
+    for (int i = 0; i < 2; ++i)
+    {
+        std::string proto = findDataFile("dnn/" + names[i] + ".pbtxt", false);
+        std::string model = findDataFile("dnn/" + names[i] + ".pb", false);
 
-    Net net = readNetFromTensorflow(model, proto);
-    net.setPreferableBackend(backend);
-    net.setPreferableTarget(target);
-    Mat img = imread(findDataFile("dnn/dog416.png", false));
-    Mat blob = blobFromImage(img, 1.0f / 127.5, Size(800, 600), Scalar(127.5, 127.5, 127.5), true, false);
+        Net net = readNetFromTensorflow(model, proto);
+        net.setPreferableBackend(backend);
+        net.setPreferableTarget(target);
+        Mat img = imread(findDataFile("dnn/dog416.png", false));
+        Mat blob = blobFromImage(img, 1.0f, Size(800, 600), Scalar(), true, false);
 
-    net.setInput(blob);
-    Mat out = net.forward();
+        net.setInput(blob);
+        Mat out = net.forward();
 
-    Mat ref = blobFromNPY(findDataFile("dnn/tensorflow/faster_rcnn_inception_v2_coco_2018_01_28.detection_out.npy"));
-    normAssertDetections(ref, out, "", 0.3);
+        Mat ref = blobFromNPY(findDataFile("dnn/tensorflow/" + names[i] + ".detection_out.npy"));
+        normAssertDetections(ref, out, names[i].c_str(), 0.3, scoresDiff);
+    }
 }
 
 TEST_P(Test_TensorFlow_nets, MobileNet_v1_SSD_PPN)
 {
+#if defined(INF_ENGINE_RELEASE) && INF_ENGINE_RELEASE == 2018050000
+    if (backend == DNN_BACKEND_INFERENCE_ENGINE && (target == DNN_TARGET_OPENCL || target == DNN_TARGET_OPENCL_FP16))
+        throw SkipTestException("Unstable test case");
+#endif
     checkBackend();
     std::string proto = findDataFile("dnn/ssd_mobilenet_v1_ppn_coco.pbtxt", false);
     std::string model = findDataFile("dnn/ssd_mobilenet_v1_ppn_coco.pb", false);
@@ -347,15 +401,17 @@ TEST_P(Test_TensorFlow_nets, MobileNet_v1_SSD_PPN)
     Net net = readNetFromTensorflow(model, proto);
     Mat img = imread(findDataFile("dnn/dog416.png", false));
     Mat ref = blobFromNPY(findDataFile("dnn/tensorflow/ssd_mobilenet_v1_ppn_coco.detection_out.npy", false));
-    Mat blob = blobFromImage(img, 1.0f / 127.5, Size(300, 300), Scalar(127.5, 127.5, 127.5), true, false);
+    Mat blob = blobFromImage(img, 1.0f, Size(300, 300), Scalar(), true, false);
 
     net.setPreferableBackend(backend);
     net.setPreferableTarget(target);
 
     net.setInput(blob);
     Mat out = net.forward();
-    double scoreDiff = (target == DNN_TARGET_OPENCL_FP16 || target == DNN_TARGET_MYRIAD) ? 0.006 : default_l1;
-    normAssertDetections(ref, out, "", 0.4, scoreDiff, default_lInf);
+
+    double scoreDiff = (target == DNN_TARGET_OPENCL_FP16 || target == DNN_TARGET_MYRIAD) ? 0.011 : 1.1e-5;
+    double iouDiff = (target == DNN_TARGET_OPENCL_FP16 || target == DNN_TARGET_MYRIAD) ? 0.021 : default_lInf;
+    normAssertDetections(ref, out, "", 0.4, scoreDiff, iouDiff);
 }
 
 TEST_P(Test_TensorFlow_nets, opencv_face_detector_uint8)
@@ -432,7 +488,7 @@ TEST_P(Test_TensorFlow_nets, EAST_text_detection)
     double l1_geometry = default_l1, lInf_geometry = default_lInf;
     if (target == DNN_TARGET_OPENCL_FP16)
     {
-        lInf_scores = 0.11;
+        lInf_scores = backend == DNN_BACKEND_INFERENCE_ENGINE ? 0.16 : 0.11;
         l1_geometry = 0.28; lInf_geometry = 5.94;
     }
     else if (target == DNN_TARGET_MYRIAD)
@@ -469,8 +525,10 @@ TEST_P(Test_TensorFlow_layers, fp16_pad_and_concat)
 {
     const float l1 = 0.00071;
     const float lInf = 0.012;
+#if defined(INF_ENGINE_RELEASE) && INF_ENGINE_RELEASE < 2018030000
     if (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD)
-        throw SkipTestException("");
+        throw SkipTestException("Test is enabled starts from OpenVINO 2018R3");
+#endif
     runTensorFlowNet("fp16_pad_and_concat", false, l1, lInf);
 }
 

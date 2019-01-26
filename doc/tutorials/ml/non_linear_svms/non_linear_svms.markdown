@@ -94,7 +94,7 @@ using OpenCV 2.4 can be found in [this page.](http://docs.opencv.org/2.4/doc/tut
 
 @add_toggle_cpp
 -   **Downloadable code**: Click
-    [here](https://github.com/opencv/opencv/tree/3.4/samples/cpp/tutorial_code/ml/non_linear_svms/non_linear_svms.cpp)
+    [here](https://github.com/opencv/opencv/tree/master/samples/cpp/tutorial_code/ml/non_linear_svms/non_linear_svms.cpp)
 
 -   **Code at glance:**
     @include samples/cpp/tutorial_code/ml/non_linear_svms/non_linear_svms.cpp
@@ -102,7 +102,7 @@ using OpenCV 2.4 can be found in [this page.](http://docs.opencv.org/2.4/doc/tut
 
 @add_toggle_java
 -   **Downloadable code**: Click
-    [here](https://github.com/opencv/opencv/tree/3.4/samples/java/tutorial_code/ml/non_linear_svms/NonLinearSVMsDemo.java)
+    [here](https://github.com/opencv/opencv/tree/master/samples/java/tutorial_code/ml/non_linear_svms/NonLinearSVMsDemo.java)
 
 -   **Code at glance:**
     @include samples/java/tutorial_code/ml/non_linear_svms/NonLinearSVMsDemo.java
@@ -110,7 +110,7 @@ using OpenCV 2.4 can be found in [this page.](http://docs.opencv.org/2.4/doc/tut
 
 @add_toggle_python
 -   **Downloadable code**: Click
-    [here](https://github.com/opencv/opencv/tree/3.4/samples/python/tutorial_code/ml/non_linear_svms/non_linear_svms.py)
+    [here](https://github.com/opencv/opencv/tree/master/samples/python/tutorial_code/ml/non_linear_svms/non_linear_svms.py)
 
 -   **Code at glance:**
     @include samples/python/tutorial_code/ml/non_linear_svms/non_linear_svms.py

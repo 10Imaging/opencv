@@ -1017,7 +1017,7 @@ cvGetRawData( const CvArr* arr, uchar** data, int* step, CvSize* roi_size )
             *data = mat->data.ptr;
 
         if( roi_size )
-            *roi_size = cvGetMatSize( mat );
+            *roi_size = cvSize(cvGetMatSize( mat ));
     }
     else if( CV_IS_IMAGE( arr ))
     {
@@ -1218,7 +1218,7 @@ cvGetDimSize( const CvArr* arr, int index )
 CV_IMPL CvSize
 cvGetSize( const CvArr* arr )
 {
-    CvSize size;
+    CvSize size = {0, 0};
 
     if( CV_IS_MAT_HDR_Z( arr ))
     {
@@ -1918,7 +1918,7 @@ cvPtrND( const CvArr* arr, const int* idx, int* _type,
 CV_IMPL  CvScalar
 cvGet1D( const CvArr* arr, int idx )
 {
-    CvScalar scalar(0);
+    CvScalar scalar = cvScalar();
     int type = 0;
     uchar* ptr;
 
@@ -1953,7 +1953,7 @@ cvGet1D( const CvArr* arr, int idx )
 CV_IMPL  CvScalar
 cvGet2D( const CvArr* arr, int y, int x )
 {
-    CvScalar scalar(0);
+    CvScalar scalar = cvScalar();
     int type = 0;
     uchar* ptr;
 
@@ -1987,7 +1987,7 @@ cvGet2D( const CvArr* arr, int y, int x )
 CV_IMPL  CvScalar
 cvGet3D( const CvArr* arr, int z, int y, int x )
 {
-    CvScalar scalar(0);
+    CvScalar scalar = cvScalar();
     int type = 0;
     uchar* ptr;
 
@@ -2009,7 +2009,7 @@ cvGet3D( const CvArr* arr, int z, int y, int x )
 CV_IMPL  CvScalar
 cvGetND( const CvArr* arr, const int* idx )
 {
-    CvScalar scalar(0);
+    CvScalar scalar = cvScalar();
     int type = 0;
     uchar* ptr;
 
@@ -2916,15 +2916,7 @@ cvInitImageHeader( IplImage * image, CvSize size, int depth,
     if( !image )
         CV_Error( CV_HeaderIsNull, "null pointer to header" );
 
-#if defined __GNUC__ && __GNUC__ >= 8
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
-#endif
-    memset( image, 0, sizeof( *image ));
-#if defined __GNUC__ && __GNUC__ >= 8
-#pragma GCC diagnostic pop
-#endif
-    image->nSize = sizeof( *image );
+    *image = cvIplImage();
 
     icvGetColorModel( channels, &colorModel, &channelSeq );
     for (int i = 0; i < 4; i++)
@@ -3081,7 +3073,7 @@ cvResetImageROI( IplImage* image )
 CV_IMPL CvRect
 cvGetImageROI( const IplImage* img )
 {
-    CvRect rect;
+    CvRect rect = {0, 0, 0, 0};
     if( !img )
         CV_Error( CV_StsNullPtr, "Null pointer to image" );
 
@@ -3213,23 +3205,11 @@ cvCheckTermCriteria( CvTermCriteria criteria, double default_eps,
 namespace cv
 {
 
-template<> void DefaultDeleter<CvMat>::operator ()(CvMat* obj) const
-{ cvReleaseMat(&obj); }
-
-template<> void DefaultDeleter<IplImage>::operator ()(IplImage* obj) const
-{ cvReleaseImage(&obj); }
-
-template<> void DefaultDeleter<CvMatND>::operator ()(CvMatND* obj) const
-{ cvReleaseMatND(&obj); }
-
-template<> void DefaultDeleter<CvSparseMat>::operator ()(CvSparseMat* obj) const
-{ cvReleaseSparseMat(&obj); }
-
-template<> void DefaultDeleter<CvMemStorage>::operator ()(CvMemStorage* obj) const
-{ cvReleaseMemStorage(&obj); }
-
-template<> void DefaultDeleter<CvFileStorage>::operator ()(CvFileStorage* obj) const
-{ cvReleaseFileStorage(&obj); }
+void DefaultDeleter<CvMat>::operator ()(CvMat* obj) const { cvReleaseMat(&obj); }
+void DefaultDeleter<IplImage>::operator ()(IplImage* obj) const { cvReleaseImage(&obj); }
+void DefaultDeleter<CvMatND>::operator ()(CvMatND* obj) const { cvReleaseMatND(&obj); }
+void DefaultDeleter<CvSparseMat>::operator ()(CvSparseMat* obj) const { cvReleaseSparseMat(&obj); }
+void DefaultDeleter<CvMemStorage>::operator ()(CvMemStorage* obj) const { cvReleaseMemStorage(&obj); }
 
 template <typename T> static inline
 void scalarToRawData_(const Scalar& s, T * const buf, const int cn, const int unroll_to)
@@ -3243,7 +3223,7 @@ void scalarToRawData_(const Scalar& s, T * const buf, const int cn, const int un
 
 void scalarToRawData(const Scalar& s, void* _buf, int type, int unroll_to)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     const int depth = CV_MAT_DEPTH(type), cn = CV_MAT_CN(type);
     CV_Assert(cn <= 4);
@@ -3270,12 +3250,49 @@ void scalarToRawData(const Scalar& s, void* _buf, int type, int unroll_to)
     case CV_64F:
         scalarToRawData_<double>(s, (double*)_buf, cn, unroll_to);
         break;
+    case CV_16F:
+        scalarToRawData_<float16_t>(s, (float16_t*)_buf, cn, unroll_to);
+        break;
     default:
         CV_Error(CV_StsUnsupportedFormat,"");
     }
 }
 
 } // cv::
+
+
+/* universal functions */
+CV_IMPL void
+cvRelease( void** struct_ptr )
+{
+    if( !struct_ptr )
+        CV_Error( CV_StsNullPtr, "NULL double pointer" );
+
+    if( *struct_ptr )
+    {
+        if( CV_IS_MAT(*struct_ptr) )
+            cvReleaseMat((CvMat**)struct_ptr);
+        else if( CV_IS_IMAGE(*struct_ptr))
+            cvReleaseImage((IplImage**)struct_ptr);
+        else
+            CV_Error( CV_StsError, "Unknown object type" );
+    }
+}
+
+void* cvClone( const void* struct_ptr )
+{
+    void* ptr = 0;
+    if( !struct_ptr )
+        CV_Error( CV_StsNullPtr, "NULL structure pointer" );
+
+    if( CV_IS_MAT(struct_ptr) )
+        ptr = cvCloneMat((const CvMat*)struct_ptr);
+    else if( CV_IS_IMAGE(struct_ptr))
+        ptr = cvCloneImage((const IplImage*)struct_ptr);
+    else
+        CV_Error( CV_StsError, "Unknown object type" );
+    return ptr;
+}
 
 
 /* End of file. */

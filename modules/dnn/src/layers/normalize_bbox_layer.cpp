@@ -89,12 +89,14 @@ public:
         return true;
     }
 
-    void finalize(const std::vector<Mat*> &inputs, std::vector<Mat> &outputs) CV_OVERRIDE
+    void finalize(InputArrayOfArrays inputs_arr, OutputArrayOfArrays) CV_OVERRIDE
     {
+        std::vector<Mat> inputs;
+        inputs_arr.getMatVector(inputs);
         CV_Assert(inputs.size() == 1);
-        endAxis = endAxis == -1 ? (inputs[0]->dims - 1) : endAxis;
-        startAxis = startAxis == -1 ? (inputs[0]->dims - 1) : startAxis;
-        acrossSpatial = (startAxis == 1 && endAxis == inputs[0]->dims - 1);
+        endAxis = endAxis == -1 ? (inputs[0].dims - 1) : endAxis;
+        startAxis = startAxis == -1 ? (inputs[0].dims - 1) : startAxis;
+        acrossSpatial = (startAxis == 1 && endAxis == inputs[0].dims - 1);
     }
 
 #ifdef HAVE_OPENCL
@@ -182,22 +184,24 @@ public:
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
 
-        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget) &&
-                   OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
+        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget),
                    forward_ocl(inputs_arr, outputs_arr, internals_arr))
 
-        Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
-    }
+        if (inputs_arr.depth() == CV_16S)
+        {
+            forward_fallback(inputs_arr, outputs_arr, internals_arr);
+            return;
+        }
 
-    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
-    {
-        CV_TRACE_FUNCTION();
-        CV_TRACE_ARG_VALUE(name, "name", name.c_str());
+        std::vector<Mat> inputs, outputs, internals;
+        inputs_arr.getMatVector(inputs);
+        outputs_arr.getMatVector(outputs);
+        internals_arr.getMatVector(internals);
 
         CV_Assert(inputs.size() == 1 && outputs.size() == 1);
-        CV_Assert(inputs[0]->total() == outputs[0].total());
+        CV_Assert(inputs[0].total() == outputs[0].total());
 
-        const Mat& inp0 = *inputs[0];
+        const Mat& inp0 = inputs[0];
         Mat& buffer = internals[0];
         startAxis = clamp(startAxis, inp0.dims);
         endAxis = clamp(endAxis, inp0.dims);
@@ -260,6 +264,49 @@ public:
     virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >& inputs) CV_OVERRIDE
     {
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+        InferenceEngine::DataPtr input = infEngineDataNode(inputs[0]);
+        if (input->dims.size() == 4)
+        {
+            InferenceEngine::Builder::NormalizeLayer ieLayer(name);
+
+            ieLayer.setChannelShared(false);
+            ieLayer.setAcrossMaps(acrossSpatial);
+            ieLayer.setEpsilon(epsilon);
+
+            InferenceEngine::Builder::Layer l = ieLayer;
+            const int numChannels = input->dims[2];  // NOTE: input->dims are reversed (whcn)
+            if (blobs.empty())
+            {
+                auto weights = InferenceEngine::make_shared_blob<float>(InferenceEngine::Precision::FP32,
+                                                                        InferenceEngine::Layout::C,
+                                                                        {(size_t)numChannels});
+                weights->allocate();
+                std::vector<float> ones(numChannels, 1);
+                weights->set(ones);
+                l.addConstantData("weights", weights);
+                l.getParameters()["channel_shared"] = false;
+            }
+            else
+            {
+                CV_Assert(numChannels == blobs[0].total());
+                l.addConstantData("weights", wrapToInfEngineBlob(blobs[0], {(size_t)numChannels}, InferenceEngine::Layout::C));
+                l.getParameters()["channel_shared"] = blobs[0].total() == 1;
+            }
+            l.getParameters()["across_spatial"] = acrossSpatial;
+            return Ptr<BackendNode>(new InfEngineBackendNode(l));
+        }
+        else
+        {
+            InferenceEngine::Builder::GRNLayer ieLayer(name);
+            ieLayer.setBeta(epsilon);
+
+            InferenceEngine::Builder::Layer l = ieLayer;
+            l.getParameters()["bias"] = epsilon;
+
+            return Ptr<BackendNode>(new InfEngineBackendNode(l));
+        }
+#else
         InferenceEngine::DataPtr input = infEngineDataNode(inputs[0]);
 
         InferenceEngine::LayerParams lp;
@@ -303,6 +350,7 @@ public:
             ieLayer->params["bias"] = format("%f", epsilon);
             return Ptr<BackendNode>(new InfEngineBackendNode(ieLayer));
         }
+#endif
 #endif  // HAVE_INF_ENGINE
         return Ptr<BackendNode>();
     }

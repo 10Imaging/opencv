@@ -29,12 +29,14 @@
  *
  */
 
+ #pragma clang diagnostic push
+ #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
 #include "precomp.hpp"
 #include "opencv2/imgproc.hpp"
 #include <iostream>
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/NSException.h>
-
 
 /********************** Declaration of class headers ************************/
 
@@ -173,7 +175,8 @@ class CvVideoWriter_AVFoundation : public CvVideoWriter{
                 double fps, CvSize frame_size,
                 int is_color=1);
         ~CvVideoWriter_AVFoundation();
-        bool writeFrame(const IplImage* image);
+        bool writeFrame(const IplImage* image) CV_OVERRIDE;
+        int getCaptureDomain() const CV_OVERRIDE { return cv::CAP_AVFOUNDATION; }
     private:
         IplImage* argbimage;
 
@@ -1329,3 +1332,5 @@ bool CvVideoWriter_AVFoundation::writeFrame(const IplImage* iplimage) {
     }
 
 }
+
+#pragma clang diagnostic pop

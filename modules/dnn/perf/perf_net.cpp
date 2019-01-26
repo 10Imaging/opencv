@@ -14,10 +14,7 @@
 
 namespace opencv_test {
 
-CV_ENUM(DNNBackend, DNN_BACKEND_DEFAULT, DNN_BACKEND_HALIDE, DNN_BACKEND_INFERENCE_ENGINE, DNN_BACKEND_OPENCV)
-CV_ENUM(DNNTarget, DNN_TARGET_CPU, DNN_TARGET_OPENCL, DNN_TARGET_OPENCL_FP16, DNN_TARGET_MYRIAD)
-
-class DNNTestNetwork : public ::perf::TestBaseWithParam< tuple<DNNBackend, DNNTarget> >
+class DNNTestNetwork : public ::perf::TestBaseWithParam< tuple<Backend, Target> >
 {
 public:
     dnn::Backend backend;
@@ -34,23 +31,6 @@ public:
     void processNet(std::string weights, std::string proto, std::string halide_scheduler,
                     const Mat& input, const std::string& outputLayer = "")
     {
-        if (backend == DNN_BACKEND_OPENCV && (target == DNN_TARGET_OPENCL || target == DNN_TARGET_OPENCL_FP16))
-        {
-#if defined(HAVE_OPENCL)
-            if (!cv::ocl::useOpenCL())
-#endif
-            {
-                throw cvtest::SkipTestException("OpenCL is not available/disabled in OpenCV");
-            }
-        }
-        if (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD)
-        {
-            if (!checkMyriadTarget())
-            {
-                throw SkipTestException("Myriad is not available/disabled in OpenCV");
-            }
-        }
-
         randu(input, 0.0f, 1.0f);
 
         weights = findDataFile(weights, false);
@@ -177,9 +157,7 @@ PERF_TEST_P_(DNNTestNetwork, MobileNet_SSD_v2_TensorFlow)
 
 PERF_TEST_P_(DNNTestNetwork, DenseNet_121)
 {
-    if (backend == DNN_BACKEND_HALIDE ||
-        backend == DNN_BACKEND_INFERENCE_ENGINE && (target == DNN_TARGET_OPENCL_FP16 ||
-                                                    target == DNN_TARGET_MYRIAD))
+    if (backend == DNN_BACKEND_HALIDE)
         throw SkipTestException("");
     processNet("dnn/DenseNet_121.caffemodel", "dnn/DenseNet_121.prototxt", "",
                Mat(cv::Size(224, 224), CV_32FC3));
@@ -188,7 +166,7 @@ PERF_TEST_P_(DNNTestNetwork, DenseNet_121)
 PERF_TEST_P_(DNNTestNetwork, OpenPose_pose_coco)
 {
     if (backend == DNN_BACKEND_HALIDE ||
-        backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD)
+        (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD))
         throw SkipTestException("");
     processNet("dnn/openpose_pose_coco.caffemodel", "dnn/openpose_pose_coco.prototxt", "",
                Mat(cv::Size(368, 368), CV_32FC3));
@@ -197,7 +175,7 @@ PERF_TEST_P_(DNNTestNetwork, OpenPose_pose_coco)
 PERF_TEST_P_(DNNTestNetwork, OpenPose_pose_mpi)
 {
     if (backend == DNN_BACKEND_HALIDE ||
-        backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD)
+        (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD))
         throw SkipTestException("");
     processNet("dnn/openpose_pose_mpi.caffemodel", "dnn/openpose_pose_mpi.prototxt", "",
                Mat(cv::Size(368, 368), CV_32FC3));
@@ -206,7 +184,7 @@ PERF_TEST_P_(DNNTestNetwork, OpenPose_pose_mpi)
 PERF_TEST_P_(DNNTestNetwork, OpenPose_pose_mpi_faster_4_stages)
 {
     if (backend == DNN_BACKEND_HALIDE ||
-        backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD)
+        (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD))
         throw SkipTestException("");
     // The same .caffemodel but modified .prototxt
     // See https://github.com/CMU-Perceptual-Computing-Lab/openpose/blob/master/src/openpose/pose/poseParameters.cpp
@@ -232,8 +210,7 @@ PERF_TEST_P_(DNNTestNetwork, Inception_v2_SSD_TensorFlow)
 
 PERF_TEST_P_(DNNTestNetwork, YOLOv3)
 {
-    if (backend == DNN_BACKEND_HALIDE ||
-        backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD)
+    if (backend == DNN_BACKEND_HALIDE)
         throw SkipTestException("");
     Mat sample = imread(findDataFile("dnn/dog416.png", false));
     Mat inp;
@@ -243,8 +220,11 @@ PERF_TEST_P_(DNNTestNetwork, YOLOv3)
 
 PERF_TEST_P_(DNNTestNetwork, EAST_text_detection)
 {
-    if (backend == DNN_BACKEND_HALIDE ||
-        backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD)
+    if (backend == DNN_BACKEND_HALIDE
+#if defined(INF_ENGINE_RELEASE) && INF_ENGINE_RELEASE < 2018030000
+        || (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD)
+#endif
+    )
         throw SkipTestException("");
     processNet("dnn/frozen_east_text_detection.pb", "", "", Mat(cv::Size(320, 320), CV_32FC3));
 }
@@ -269,22 +249,6 @@ PERF_TEST_P_(DNNTestNetwork, Inception_v2_Faster_RCNN)
                Mat(cv::Size(800, 600), CV_32FC3));
 }
 
-const tuple<DNNBackend, DNNTarget> testCases[] = {
-#ifdef HAVE_HALIDE
-    tuple<DNNBackend, DNNTarget>(DNN_BACKEND_HALIDE, DNN_TARGET_CPU),
-    tuple<DNNBackend, DNNTarget>(DNN_BACKEND_HALIDE, DNN_TARGET_OPENCL),
-#endif
-#ifdef HAVE_INF_ENGINE
-    tuple<DNNBackend, DNNTarget>(DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_CPU),
-    tuple<DNNBackend, DNNTarget>(DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_OPENCL),
-    tuple<DNNBackend, DNNTarget>(DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_OPENCL_FP16),
-    tuple<DNNBackend, DNNTarget>(DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_MYRIAD),
-#endif
-    tuple<DNNBackend, DNNTarget>(DNN_BACKEND_OPENCV, DNN_TARGET_CPU),
-    tuple<DNNBackend, DNNTarget>(DNN_BACKEND_OPENCV, DNN_TARGET_OPENCL),
-    tuple<DNNBackend, DNNTarget>(DNN_BACKEND_OPENCV, DNN_TARGET_OPENCL_FP16)
-};
-
-INSTANTIATE_TEST_CASE_P(/*nothing*/, DNNTestNetwork, testing::ValuesIn(testCases));
+INSTANTIATE_TEST_CASE_P(/*nothing*/, DNNTestNetwork, dnnBackendsAndTargets());
 
 } // namespace

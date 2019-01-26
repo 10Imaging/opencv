@@ -96,12 +96,6 @@ public:
             biasMat = blobs[1] = blobs[1].reshape(1, 1);
         else
             biasMat = Mat::zeros(1, numOutput, weightsMat.type());
-
-#ifdef HAVE_OPENCL
-        size_t n = blobs.size();
-        umat_blobs.resize(n);
-        for (int i = 0; i < n; i++) umat_blobs[i] = blobs[i].getUMat(ACCESS_READ);
-#endif
     }
 
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
@@ -129,8 +123,8 @@ public:
     virtual bool supportBackend(int backendId) CV_OVERRIDE
     {
         return backendId == DNN_BACKEND_OPENCV ||
-               backendId == DNN_BACKEND_HALIDE && haveHalide() && axis == 1 ||
-               backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine() && axis == 1;
+               (backendId == DNN_BACKEND_HALIDE && haveHalide() && axis == 1) ||
+               (backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine() && axis == 1);
     }
 
     virtual bool setActivation(const Ptr<ActivationLayer>& layer) CV_OVERRIDE
@@ -273,9 +267,11 @@ public:
     };
 
 #ifdef HAVE_OPENCL
-    void finalize(const std::vector<Mat*> &inputs, std::vector<Mat> &outputs) CV_OVERRIDE
+    virtual void finalize(InputArrayOfArrays, OutputArrayOfArrays) CV_OVERRIDE
     {
         innerProductOp.release();
+        umat_blobs.clear();
+        half_blobs.clear();
     }
 
     bool forward_ocl(InputArrayOfArrays inps, OutputArrayOfArrays outs, InputArrayOfArrays internals)
@@ -288,13 +284,17 @@ public:
         outs.getUMatVector(outputs);
 
         int axisCan = clamp(axis, inputs[0].dims);
-        int numOutput = umat_blobs[0].size[0];
-        int innerSize = umat_blobs[0].size[1];
+        int numOutput = blobs[0].size[0];
+        int innerSize = blobs[0].size[1];
         int outerSize = total(shape(inputs[0]), 0, axisCan);
         bool ret = true;
 
         if (innerProductOp.empty())
         {
+            size_t n = blobs.size();
+            umat_blobs.resize(n);
+            for (int i = 0; i < n; i++) blobs[i].copyTo(umat_blobs[i]);
+
             OCL4DNNInnerProductConfig config;
             config.num_output = numOutput;
             config.bias_term = bias;
@@ -350,17 +350,33 @@ public:
             inshape = shape(outerSize, innerSize);
             outshape = shape(outerSize, numOutput);
 
-            UMat srcMat, dstMat;
+            UMat srcMat, dstMat, srcMat_fp32, dstMat_fp32;
             srcMat = inputs[i].reshape(1, inshape.size(), &inshape[0]);
             dstMat = outputs[i].reshape(1, outshape.size(), &outshape[0]);
 
-            cv::gemm(srcMat, weights, 1, noArray(), 0, dstMat, GEMM_2_T);
+            if (use_half)
+            {
+                convertFp16(srcMat, srcMat_fp32);
+                convertFp16(dstMat, dstMat_fp32);
+            }
+            else
+            {
+                srcMat_fp32 = srcMat;
+                dstMat_fp32 = dstMat;
+            }
+
+            cv::gemm(srcMat_fp32, weights, 1, noArray(), 0, dstMat_fp32, GEMM_2_T);
 
             if (bias)
             {
                 UMat biasOnesMat = UMat::ones(outerSize, 1, umat_blobs[0].type());
                 UMat& biases = umat_blobs[1];
-                cv::gemm(biasOnesMat, biases, 1, dstMat, 1, dstMat, 0);
+                cv::gemm(biasOnesMat, biases, 1, dstMat_fp32, 1, dstMat_fp32, 0);
+            }
+            if (use_half)
+            {
+                convertFp16(srcMat_fp32, srcMat);
+                convertFp16(dstMat_fp32, dstMat);
             }
         }
 
@@ -373,24 +389,25 @@ public:
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
 
-        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget) &&
-                   OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
+        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget),
                    forward_ocl(inputs_arr, outputs_arr, internals_arr))
 
-        Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
-    }
+        if (inputs_arr.depth() == CV_16S)
+        {
+            forward_fallback(inputs_arr, outputs_arr, internals_arr);
+            return;
+        }
 
-    void forward(std::vector<Mat*> &input, std::vector<Mat> &output, std::vector<Mat> &) CV_OVERRIDE
-    {
-        CV_TRACE_FUNCTION();
-        CV_TRACE_ARG_VALUE(name, "name", name.c_str());
+        std::vector<Mat> input, output;
+        inputs_arr.getMatVector(input);
+        outputs_arr.getMatVector(output);
 
-        int axisCan = clamp(axis, input[0]->dims);
-        int outerSize = input[0]->total(0, axisCan);
+        int axisCan = clamp(axis, input[0].dims);
+        int outerSize = input[0].total(0, axisCan);
 
         for (size_t i = 0; i < input.size(); i++)
         {
-            Mat srcMat = input[i]->reshape(1, outerSize);
+            Mat srcMat = input[i].reshape(1, outerSize);
             Mat dstMat = output[i].reshape(1, outerSize);
 
             const int nstripes = getNumThreads();
@@ -425,6 +442,18 @@ public:
     virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&) CV_OVERRIDE
     {
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+        InferenceEngine::Builder::FullyConnectedLayer ieLayer(name);
+
+        const int outNum = blobs[0].size[0];
+        ieLayer.setOutputNum(outNum);
+
+        ieLayer.setWeights(wrapToInfEngineBlob(blobs[0], {(size_t)blobs[0].size[0], (size_t)blobs[0].size[1], 1, 1}, InferenceEngine::Layout::OIHW));
+        if (blobs.size() > 1)
+            ieLayer.setBiases(wrapToInfEngineBlob(blobs[1], {(size_t)outNum}, InferenceEngine::Layout::C));
+
+        return Ptr<BackendNode>(new InfEngineBackendNode(ieLayer));
+#else
         InferenceEngine::LayerParams lp;
         lp.name = name;
         lp.type = "FullyConnected";
@@ -432,10 +461,14 @@ public:
         std::shared_ptr<InferenceEngine::FullyConnectedLayer> ieLayer(new InferenceEngine::FullyConnectedLayer(lp));
 
         ieLayer->_out_num = blobs[0].size[0];
+#if INF_ENGINE_VER_MAJOR_GT(INF_ENGINE_RELEASE_2018R3)
+        ieLayer->params["out-size"] = format("%d", blobs[0].size[0]);
+#endif
         ieLayer->_weights = wrapToInfEngineBlob(blobs[0], {(size_t)blobs[0].size[0], (size_t)blobs[0].size[1], 1, 1}, InferenceEngine::Layout::OIHW);
         if (blobs.size() > 1)
             ieLayer->_biases = wrapToInfEngineBlob(blobs[1], {(size_t)ieLayer->_out_num}, InferenceEngine::Layout::C);
         return Ptr<BackendNode>(new InfEngineBackendNode(ieLayer));
+#endif
 #endif  // HAVE_INF_ENGINE
         return Ptr<BackendNode>();
     }
@@ -443,7 +476,7 @@ public:
     virtual int64 getFLOPS(const std::vector<MatShape> &inputs,
                            const std::vector<MatShape> &outputs) const CV_OVERRIDE
     {
-        (void)inputs; // suppress unused variable warning
+        CV_UNUSED(inputs); // suppress unused variable warning
         long flops = 0;
 
         int innerSize = blobs[0].size[1];

@@ -93,7 +93,27 @@ Source Code
 
 @add_toggle_cpp
 -   **Downloadable code**: Click
-    [here](https://github.com/opencv/opencv/tree/3.4/samples/cpp/tutorial_code/ml/introduction_to_pca/introduction_to_pca.cpp)
+    [here](https://github.com/opencv/opencv/tree/master/samples/cpp/tutorial_code/ml/introduction_to_pca/introduction_to_pca.cpp)
+
+-   **Code at glance:**
+    @include samples/cpp/tutorial_code/ml/introduction_to_pca/introduction_to_pca.cpp
+@end_toggle
+
+@add_toggle_java
+-   **Downloadable code**: Click
+    [here](https://github.com/opencv/opencv/tree/master/samples/java/tutorial_code/ml/introduction_to_pca/IntroductionToPCADemo.java)
+
+-   **Code at glance:**
+    @include samples/java/tutorial_code/ml/introduction_to_pca/IntroductionToPCADemo.java
+@end_toggle
+
+@add_toggle_python
+-   **Downloadable code**: Click
+    [here](https://github.com/opencv/opencv/tree/master/samples/python/tutorial_code/ml/introduction_to_pca/introduction_to_pca.py)
+
+-   **Code at glance:**
+    @include samples/python/tutorial_code/ml/introduction_to_pca/introduction_to_pca.py
+@end_toggle
 
 -   **Code at glance:**
     @include samples/cpp/tutorial_code/ml/introduction_to_pca/introduction_to_pca.cpp

@@ -45,6 +45,9 @@
 #include "lkpyramid.hpp"
 #include "opencl_kernels_video.hpp"
 #include "opencv2/core/hal/intrin.hpp"
+#ifdef HAVE_OPENCV_CALIB3D
+#include "opencv2/calib3d.hpp"
+#endif
 
 #include "opencv2/core/openvx/ovx_defs.hpp"
 
@@ -59,11 +62,6 @@ static void calcSharrDeriv(const cv::Mat& src, cv::Mat& dst)
     int rows = src.rows, cols = src.cols, cn = src.channels(), colsn = cols*cn, depth = src.depth();
     CV_Assert(depth == CV_8U);
     dst.create(rows, cols, CV_MAKETYPE(DataType<deriv_type>::depth, cn*2));
-
-#ifdef HAVE_TEGRA_OPTIMIZATION
-    if (tegra::useTegra() && tegra::calcSharrDeriv(src, dst))
-        return;
-#endif
 
     int x, y, delta = (int)alignSize((cols + 2)*cn, 16);
     AutoBuffer<deriv_type> _tempBuf(delta*2 + 64);
@@ -93,7 +91,7 @@ static void calcSharrDeriv(const cv::Mat& src, cv::Mat& dst)
                 v_int16x8 s2 = v_reinterpret_as_s16(v_load_expand(srow2 + x));
 
                 v_int16x8 t1 = s2 - s0;
-                v_int16x8 t0 = (s0 + s2) * c3 + s1 * c10;
+                v_int16x8 t0 = v_mul_wrap(s0 + s2, c3) + v_mul_wrap(s1, c10);
 
                 v_store(trow0 + x, t0);
                 v_store(trow1 + x, t1);
@@ -131,7 +129,7 @@ static void calcSharrDeriv(const cv::Mat& src, cv::Mat& dst)
                 v_int16x8 s4 = v_load(trow1 + x + cn);
 
                 v_int16x8 t0 = s1 - s0;
-                v_int16x8 t1 = ((s2 + s4) * c3) + (s3 * c10);
+                v_int16x8 t1 = v_mul_wrap(s2 + s4, c3) + v_mul_wrap(s3, c10);
 
                 v_store_interleave((drow + x*2), t0, t1);
             }
@@ -180,7 +178,7 @@ typedef float itemtype;
 
 void cv::detail::LKTrackerInvoker::operator()(const Range& range) const
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     Point2f halfWin((winSize.width-1)*0.5f, (winSize.height-1)*0.5f);
     const Mat& I = *prevImg;
@@ -700,13 +698,13 @@ void cv::detail::LKTrackerInvoker::operator()(const Range& range) const
 int cv::buildOpticalFlowPyramid(InputArray _img, OutputArrayOfArrays pyramid, Size winSize, int maxLevel, bool withDerivatives,
                                 int pyrBorder, int derivBorder, bool tryReuseInputImage)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     Mat img = _img.getMat();
     CV_Assert(img.depth() == CV_8U && winSize.width > 2 && winSize.height > 2 );
     int pyrstep = withDerivatives ? 2 : 1;
 
-    pyramid.create(1, (maxLevel + 1) * pyrstep, 0 /*type*/, -1, true, 0);
+    pyramid.create(1, (maxLevel + 1) * pyrstep, 0 /*type*/, -1, true);
 
     int derivType = CV_MAKETYPE(DataType<cv::detail::deriv_type>::depth, img.channels() * 2);
 
@@ -785,7 +783,7 @@ int cv::buildOpticalFlowPyramid(InputArray _img, OutputArrayOfArrays pyramid, Si
         sz = Size((sz.width+1)/2, (sz.height+1)/2);
         if( sz.width <= winSize.width || sz.height <= winSize.height )
         {
-            pyramid.create(1, (level + 1) * pyrstep, 0 /*type*/, -1, true, 0);//check this
+            pyramid.create(1, (level + 1) * pyrstep, 0 /*type*/, -1, true);//check this
             return level;
         }
 
@@ -814,7 +812,7 @@ namespace
                          double minEigThreshold_ = 1e-4) :
           winSize(winSize_), maxLevel(maxLevel_), criteria(criteria_), flags(flags_), minEigThreshold(minEigThreshold_)
 #ifdef HAVE_OPENCL
-          , iters(criteria_.maxCount), derivLambda(criteria_.epsilon), useInitialFlow(0 != (flags_ & OPTFLOW_LK_GET_MIN_EIGENVALS)), waveSize(0)
+          , iters(criteria_.maxCount), derivLambda(criteria_.epsilon), useInitialFlow(0 != (flags_ & OPTFLOW_LK_GET_MIN_EIGENVALS))
 #endif
         {
         }
@@ -855,8 +853,6 @@ namespace
                 return false;
             calcPatchSize();
             if (patch.x <= 0 || patch.x >= 6 || patch.y <= 0 || patch.y >= 6)
-                return false;
-            if (!initWaveSize())
                 return false;
             return true;
         }
@@ -926,19 +922,6 @@ namespace
         int iters;
         double derivLambda;
         bool useInitialFlow;
-        int waveSize;
-        bool initWaveSize()
-        {
-            waveSize = 1;
-            if (isDeviceCPU())
-                return true;
-
-            ocl::Kernel kernel;
-            if (!kernel.create("lkSparse", cv::ocl::video::pyrlk_oclsrc, ""))
-                return false;
-            waveSize = (int)kernel.preferedWorkGroupSizeMultiple();
-            return true;
-        }
         dim3 patch;
         void calcPatchSize()
         {
@@ -977,8 +960,8 @@ namespace
             if (isDeviceCPU())
                 build_options = " -D CPU";
             else
-                build_options = cv::format("-D WAVE_SIZE=%d -D WSX=%d -D WSY=%d",
-                                           waveSize, wsx, wsy);
+                build_options = cv::format("-D WSX=%d -D WSY=%d",
+                                           wsx, wsy);
 
             ocl::Kernel kernel;
             if (!kernel.create("lkSparse", cv::ocl::video::pyrlk_oclsrc, build_options))
@@ -1064,7 +1047,9 @@ namespace
         _status.create((int)npoints, 1, CV_8UC1);
         UMat umatNextPts = _nextPts.getUMat();
         UMat umatStatus = _status.getUMat();
-        return sparse(_prevImg.getUMat(), _nextImg.getUMat(), _prevPts.getUMat(), umatNextPts, umatStatus, umatErr);
+        UMat umatPrevPts;
+        _prevPts.getMat().copyTo(umatPrevPts);
+        return sparse(_prevImg.getUMat(), _nextImg.getUMat(), umatPrevPts, umatNextPts, umatStatus, umatErr);
     }
 #endif
 
@@ -1204,11 +1189,11 @@ namespace
         prevImg.swapHandle(); nextImg.swapHandle();
 #endif
         }
-        catch (RuntimeError & e)
+        catch (const RuntimeError & e)
         {
             VX_DbgThrow(e.what());
         }
-        catch (WrapperError & e)
+        catch (const WrapperError & e)
         {
             VX_DbgThrow(e.what());
         }
@@ -1224,7 +1209,7 @@ void SparsePyrLKOpticalFlowImpl::calc( InputArray _prevImg, InputArray _nextImg,
                            InputArray _prevPts, InputOutputArray _nextPts,
                            OutputArray _status, OutputArray _err)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CV_OCL_RUN(ocl::isOpenCLActivated() &&
                (_prevImg.isUMat() || _nextImg.isUMat()) &&
@@ -1378,12 +1363,7 @@ void SparsePyrLKOpticalFlowImpl::calc( InputArray _prevImg, InputArray _nextImg,
         CV_Assert(prevPyr[level * lvlStep1].size() == nextPyr[level * lvlStep2].size());
         CV_Assert(prevPyr[level * lvlStep1].type() == nextPyr[level * lvlStep2].type());
 
-#ifdef HAVE_TEGRA_OPTIMIZATION
-        typedef tegra::LKTrackerInvoker<cv::detail::LKTrackerInvoker> LKTrackerInvoker;
-#else
         typedef cv::detail::LKTrackerInvoker LKTrackerInvoker;
-#endif
-
         parallel_for_(Range(0, npoints), LKTrackerInvoker(prevPyr[level * lvlStep1], derivI,
                                                           nextPyr[level * lvlStep2], prevPts, nextPts,
                                                           status, err,
@@ -1408,109 +1388,23 @@ void cv::calcOpticalFlowPyrLK( InputArray _prevImg, InputArray _nextImg,
     optflow->calc(_prevImg,_nextImg,_prevPts,_nextPts,_status,_err);
 }
 
-namespace cv
-{
-
-static void
-getRTMatrix( const std::vector<Point2f> a, const std::vector<Point2f> b,
-             int count, Mat& M, bool fullAffine )
-{
-    CV_Assert( M.isContinuous() );
-
-    if( fullAffine )
-    {
-        double sa[6][6]={{0.}}, sb[6]={0.};
-        Mat A( 6, 6, CV_64F, &sa[0][0] ), B( 6, 1, CV_64F, sb );
-        Mat MM = M.reshape(1, 6);
-
-        for( int i = 0; i < count; i++ )
-        {
-            sa[0][0] += a[i].x*a[i].x;
-            sa[0][1] += a[i].y*a[i].x;
-            sa[0][2] += a[i].x;
-
-            sa[1][1] += a[i].y*a[i].y;
-            sa[1][2] += a[i].y;
-
-            sb[0] += a[i].x*b[i].x;
-            sb[1] += a[i].y*b[i].x;
-            sb[2] += b[i].x;
-            sb[3] += a[i].x*b[i].y;
-            sb[4] += a[i].y*b[i].y;
-            sb[5] += b[i].y;
-        }
-
-        sa[3][4] = sa[4][3] = sa[1][0] = sa[0][1];
-        sa[3][5] = sa[5][3] = sa[2][0] = sa[0][2];
-        sa[4][5] = sa[5][4] = sa[2][1] = sa[1][2];
-
-        sa[3][3] = sa[0][0];
-        sa[4][4] = sa[1][1];
-        sa[5][5] = sa[2][2] = count;
-
-        solve( A, B, MM, DECOMP_EIG );
-    }
-    else
-    {
-        double sa[4][4]={{0.}}, sb[4]={0.}, m[4] = {0};
-        Mat A( 4, 4, CV_64F, sa ), B( 4, 1, CV_64F, sb );
-        Mat MM( 4, 1, CV_64F, m );
-
-        for( int i = 0; i < count; i++ )
-        {
-            sa[0][0] += a[i].x*a[i].x + a[i].y*a[i].y;
-            sa[0][2] += a[i].x;
-            sa[0][3] += a[i].y;
-
-            sb[0] += a[i].x*b[i].x + a[i].y*b[i].y;
-            sb[1] += a[i].x*b[i].y - a[i].y*b[i].x;
-            sb[2] += b[i].x;
-            sb[3] += b[i].y;
-        }
-
-        sa[1][1] = sa[0][0];
-        sa[2][1] = sa[1][2] = -sa[0][3];
-        sa[3][1] = sa[1][3] = sa[2][0] = sa[0][2];
-        sa[2][2] = sa[3][3] = count;
-        sa[3][0] = sa[0][3];
-
-        solve( A, B, MM, DECOMP_EIG );
-
-        double* om = M.ptr<double>();
-        om[0] = om[4] = m[0];
-        om[1] = -m[1];
-        om[3] = m[1];
-        om[2] = m[2];
-        om[5] = m[3];
-    }
-}
-
-}
-
 cv::Mat cv::estimateRigidTransform( InputArray src1, InputArray src2, bool fullAffine )
 {
-    return estimateRigidTransform(src1, src2, fullAffine, 500, 0.5, 3);
-}
-
-cv::Mat cv::estimateRigidTransform( InputArray src1, InputArray src2, bool fullAffine, int ransacMaxIters, double ransacGoodRatio,
-                                    const int ransacSize0)
-{
-    CV_INSTRUMENT_REGION()
-
-    Mat M(2, 3, CV_64F), A = src1.getMat(), B = src2.getMat();
+    CV_INSTRUMENT_REGION();
+#ifndef HAVE_OPENCV_CALIB3D
+    CV_UNUSED(src1); CV_UNUSED(src2); CV_UNUSED(fullAffine);
+    CV_Error(Error::StsError, "estimateRigidTransform requires calib3d module");
+#else
+    Mat A = src1.getMat(), B = src2.getMat();
 
     const int COUNT = 15;
     const int WIDTH = 160, HEIGHT = 120;
 
     std::vector<Point2f> pA, pB;
-    std::vector<int> good_idx;
     std::vector<uchar> status;
 
     double scale = 1.;
-    int i, j, k, k1;
-
-    RNG rng((uint64)-1);
-    int good_count = 0;
+    int i, j, k;
 
     if( ransacSize0 < 3 )
         CV_Error( Error::StsBadArg, "ransacSize0 should have value bigger than 2.");
@@ -1528,11 +1422,13 @@ cv::Mat cv::estimateRigidTransform( InputArray src1, InputArray src2, bool fullA
 
     if( count > 0 )
     {
+        // inputs are points
         A.reshape(2, count).convertTo(pA, CV_32F);
         B.reshape(2, count).convertTo(pB, CV_32F);
     }
     else if( A.depth() == CV_8U )
     {
+        // inputs are images
         int cn = A.channels();
         CV_Assert( cn == 1 || cn == 3 || cn == 4 );
         Size sz0 = A.size();
@@ -1604,108 +1500,13 @@ cv::Mat cv::estimateRigidTransform( InputArray src1, InputArray src2, bool fullA
     else
         CV_Error( Error::StsUnsupportedFormat, "Both input images must have either 8uC1 or 8uC3 type" );
 
-    good_idx.resize(count);
-
-    if( count < ransacSize0 )
-        return Mat();
-
-    Rect brect = boundingRect(pB);
-
-    std::vector<Point2f> a(ransacSize0);
-    std::vector<Point2f> b(ransacSize0);
-
-    // RANSAC stuff:
-    // 1. find the consensus
-    for( k = 0; k < ransacMaxIters; k++ )
+    if (fullAffine)
     {
-        std::vector<int> idx(ransacSize0);
-        // choose random 3 non-complanar points from A & B
-        for( i = 0; i < ransacSize0; i++ )
-        {
-            for( k1 = 0; k1 < ransacMaxIters; k1++ )
-            {
-                idx[i] = rng.uniform(0, count);
-
-                for( j = 0; j < i; j++ )
-                {
-                    if( idx[j] == idx[i] )
-                        break;
-                    // check that the points are not very close one each other
-                    if( fabs(pA[idx[i]].x - pA[idx[j]].x) +
-                        fabs(pA[idx[i]].y - pA[idx[j]].y) < FLT_EPSILON )
-                        break;
-                    if( fabs(pB[idx[i]].x - pB[idx[j]].x) +
-                        fabs(pB[idx[i]].y - pB[idx[j]].y) < FLT_EPSILON )
-                        break;
-                }
-
-                if( j < i )
-                    continue;
-
-                if( i+1 == ransacSize0 )
-                {
-                    // additional check for non-complanar vectors
-                    a[0] = pA[idx[0]];
-                    a[1] = pA[idx[1]];
-                    a[2] = pA[idx[2]];
-
-                    b[0] = pB[idx[0]];
-                    b[1] = pB[idx[1]];
-                    b[2] = pB[idx[2]];
-
-                    double dax1 = a[1].x - a[0].x, day1 = a[1].y - a[0].y;
-                    double dax2 = a[2].x - a[0].x, day2 = a[2].y - a[0].y;
-                    double dbx1 = b[1].x - b[0].x, dby1 = b[1].y - b[0].y;
-                    double dbx2 = b[2].x - b[0].x, dby2 = b[2].y - b[0].y;
-                    const double eps = 0.01;
-
-                    if( fabs(dax1*day2 - day1*dax2) < eps*std::sqrt(dax1*dax1+day1*day1)*std::sqrt(dax2*dax2+day2*day2) ||
-                        fabs(dbx1*dby2 - dby1*dbx2) < eps*std::sqrt(dbx1*dbx1+dby1*dby1)*std::sqrt(dbx2*dbx2+dby2*dby2) )
-                        continue;
-                }
-                break;
-            }
-
-            if( k1 >= ransacMaxIters )
-                break;
-        }
-
-        if( i < ransacSize0 )
-            continue;
-
-        // estimate the transformation using 3 points
-        getRTMatrix( a, b, 3, M, fullAffine );
-
-        const double* m = M.ptr<double>();
-        for( i = 0, good_count = 0; i < count; i++ )
-        {
-            if( std::abs( m[0]*pA[i].x + m[1]*pA[i].y + m[2] - pB[i].x ) +
-                std::abs( m[3]*pA[i].x + m[4]*pA[i].y + m[5] - pB[i].y ) < std::max(brect.width,brect.height)*0.05 )
-                good_idx[good_count++] = i;
-        }
-
-        if( good_count >= count*ransacGoodRatio )
-            break;
+        return estimateAffine2D(pA, pB);
     }
-
-    if( k >= ransacMaxIters )
-        return Mat();
-
-    if( good_count < count )
+    else
     {
-        for( i = 0; i < good_count; i++ )
-        {
-            j = good_idx[i];
-            pA[i] = pA[j];
-            pB[i] = pB[j];
-        }
+        return estimateAffinePartial2D(pA, pB);
     }
-
-    getRTMatrix( pA, pB, good_count, M, fullAffine );
-    M.at<double>(0, 2) /= scale;
-    M.at<double>(1, 2) /= scale;
-
-    return M;
+#endif
 }
-
-/* End of file. */

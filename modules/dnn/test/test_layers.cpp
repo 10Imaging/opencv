@@ -61,16 +61,13 @@ static String _tf(TString filename)
 void runLayer(Ptr<Layer> layer, std::vector<Mat> &inpBlobs, std::vector<Mat> &outBlobs)
 {
     size_t ninputs = inpBlobs.size();
-    std::vector<Mat> inp_(ninputs);
-    std::vector<Mat*> inp(ninputs);
-    std::vector<Mat> outp, intp;
+    std::vector<Mat> inp(ninputs), outp, intp;
     std::vector<MatShape> inputs, outputs, internals;
 
     for (size_t i = 0; i < ninputs; i++)
     {
-        inp_[i] = inpBlobs[i].clone();
-        inp[i] = &inp_[i];
-        inputs.push_back(shape(inp_[i]));
+        inp[i] = inpBlobs[i].clone();
+        inputs.push_back(shape(inp[i]));
     }
 
     layer->getMemoryShapes(inputs, 0, outputs, internals);
@@ -140,6 +137,10 @@ TEST_P(Test_Caffe_layers, Convolution)
 
 TEST_P(Test_Caffe_layers, DeConvolution)
 {
+#if defined(INF_ENGINE_RELEASE) && INF_ENGINE_RELEASE >= 2018040000
+    if (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_CPU)
+        throw SkipTestException("Test is disabled for OpenVINO 2018R4");
+#endif
     testLayerUsingCaffeModels("layer_deconvolution", true, false);
 }
 
@@ -215,8 +216,10 @@ TEST(Layer_Test_Reshape, Accuracy)
 
 TEST_P(Test_Caffe_layers, BatchNorm)
 {
+#if defined(INF_ENGINE_RELEASE) && INF_ENGINE_RELEASE < 2018030000
     if (backend == DNN_BACKEND_INFERENCE_ENGINE)
-        throw SkipTestException("");
+        throw SkipTestException("Test is enabled starts from OpenVINO 2018R3");
+#endif
     testLayerUsingCaffeModels("layer_batch_norm", true);
     testLayerUsingCaffeModels("layer_batch_norm_local_stats", true, false);
 }
@@ -240,9 +243,14 @@ TEST_P(Test_Caffe_layers, Concat)
 
 TEST_P(Test_Caffe_layers, Fused_Concat)
 {
-    if ((backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_CPU) ||
-        (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_OPENCL))
+#if defined(INF_ENGINE_RELEASE)
+    if (backend == DNN_BACKEND_INFERENCE_ENGINE)
+    {
+        if (target == DNN_TARGET_OPENCL || target == DNN_TARGET_OPENCL_FP16 ||
+            (INF_ENGINE_RELEASE < 2018040000 && target == DNN_TARGET_CPU))
         throw SkipTestException("");
+    }
+#endif
     checkBackend();
 
     // Test case
@@ -346,12 +354,6 @@ TEST_P(Test_Caffe_layers, Reshape_Split_Slice)
 
 TEST_P(Test_Caffe_layers, Conv_Elu)
 {
-    if (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD)
-    {
-        if (!checkMyriadTarget())
-            throw SkipTestException("Myriad is not available/disabled in OpenCV");
-    }
-
     Net net = readNetFromTensorflow(_tf("layer_elu_model.pb"));
     ASSERT_FALSE(net.empty());
 
@@ -559,7 +561,9 @@ TEST_P(Test_Caffe_layers, FasterRCNN_Proposal)
         normAssert(outs[i].rowRange(0, numDets), ref);
 
         if (numDets < outs[i].size[0])
+        {
             EXPECT_EQ(countNonZero(outs[i].rowRange(numDets, outs[i].size[0])), 0);
+        }
     }
 }
 
@@ -729,8 +733,10 @@ INSTANTIATE_TEST_CASE_P(Layer_Test, Crop, Combine(
 // into the normalization area.
 TEST_P(Test_Caffe_layers, Average_pooling_kernel_area)
 {
+#if defined(INF_ENGINE_RELEASE) && INF_ENGINE_RELEASE < 2018030000
     if (backend == DNN_BACKEND_INFERENCE_ENGINE && target == DNN_TARGET_MYRIAD)
-        throw SkipTestException("");
+        throw SkipTestException("Test is enabled starts from OpenVINO 2018R3");
+#endif
     LayerParams lp;
     lp.name = "testAvePool";
     lp.type = "Pooling";
@@ -912,8 +918,11 @@ INSTANTIATE_TEST_CASE_P(/**/, Layer_Test_DWconv_Prelu, Combine(Values(3, 6), Val
 // Using Intel's Model Optimizer generate .xml and .bin files:
 // ./ModelOptimizer -w /path/to/caffemodel -d /path/to/prototxt \
 //                  -p FP32 -i -b ${batch_size} -o /path/to/output/folder
-TEST(Layer_Test_Convolution_DLDT, Accuracy)
+typedef testing::TestWithParam<Target> Layer_Test_Convolution_DLDT;
+TEST_P(Layer_Test_Convolution_DLDT, Accuracy)
 {
+    Target targetId = GetParam();
+
     Net netDefault = readNet(_tf("layer_convolution.caffemodel"), _tf("layer_convolution.prototxt"));
     Net net = readNet(_tf("layer_convolution.xml"), _tf("layer_convolution.bin"));
 
@@ -924,17 +933,29 @@ TEST(Layer_Test_Convolution_DLDT, Accuracy)
     Mat outDefault = netDefault.forward();
 
     net.setInput(inp);
-    Mat out = net.forward();
+    net.setPreferableTarget(targetId);
 
-    normAssert(outDefault, out);
+    if (targetId != DNN_TARGET_MYRIAD)
+    {
+        Mat out = net.forward();
 
-    std::vector<int> outLayers = net.getUnconnectedOutLayers();
-    ASSERT_EQ(net.getLayer(outLayers[0])->name, "output_merge");
-    ASSERT_EQ(net.getLayer(outLayers[0])->type, "Concat");
+        normAssert(outDefault, out);
+
+        std::vector<int> outLayers = net.getUnconnectedOutLayers();
+        ASSERT_EQ(net.getLayer(outLayers[0])->name, "output_merge");
+        ASSERT_EQ(net.getLayer(outLayers[0])->type, "Concat");
+    }
+    else
+    {
+        // An assertion is expected because the model is in FP32 format but
+        // Myriad plugin supports only FP16 models.
+        ASSERT_ANY_THROW(net.forward());
+    }
 }
 
-TEST(Layer_Test_Convolution_DLDT, setInput_uint8)
+TEST_P(Layer_Test_Convolution_DLDT, setInput_uint8)
 {
+    Target targetId = GetParam();
     Mat inp = blobFromNPY(_tf("blob.npy"));
 
     Mat inputs[] = {Mat(inp.dims, inp.size, CV_8U), Mat()};
@@ -945,12 +966,25 @@ TEST(Layer_Test_Convolution_DLDT, setInput_uint8)
     for (int i = 0; i < 2; ++i)
     {
         Net net = readNet(_tf("layer_convolution.xml"), _tf("layer_convolution.bin"));
+        net.setPreferableTarget(targetId);
         net.setInput(inputs[i]);
-        outs[i] = net.forward();
-        ASSERT_EQ(outs[i].type(), CV_32F);
+        if (targetId != DNN_TARGET_MYRIAD)
+        {
+            outs[i] = net.forward();
+            ASSERT_EQ(outs[i].type(), CV_32F);
+        }
+        else
+        {
+            // An assertion is expected because the model is in FP32 format but
+            // Myriad plugin supports only FP16 models.
+            ASSERT_ANY_THROW(net.forward());
+        }
     }
-    normAssert(outs[0], outs[1]);
+    if (targetId != DNN_TARGET_MYRIAD)
+        normAssert(outs[0], outs[1]);
 }
+INSTANTIATE_TEST_CASE_P(/**/, Layer_Test_Convolution_DLDT,
+    testing::ValuesIn(getAvailableTargets(DNN_BACKEND_INFERENCE_ENGINE)));
 
 // 1. Create a .prototxt file with the following network:
 // layer {
@@ -974,14 +1008,17 @@ TEST(Layer_Test_Convolution_DLDT, setInput_uint8)
 // net.save('/path/to/caffemodel')
 //
 // 3. Convert using ModelOptimizer.
-typedef testing::TestWithParam<tuple<int, int> > Test_DLDT_two_inputs;
+typedef testing::TestWithParam<tuple<int, int, Target> > Test_DLDT_two_inputs;
 TEST_P(Test_DLDT_two_inputs, as_IR)
 {
     int firstInpType = get<0>(GetParam());
     int secondInpType = get<1>(GetParam());
-    // TODO: It looks like a bug in Inference Engine.
+    Target targetId = get<2>(GetParam());
+
+#if defined(INF_ENGINE_RELEASE) && INF_ENGINE_RELEASE < 2018040000
     if (secondInpType == CV_8U)
-        throw SkipTestException("");
+        throw SkipTestException("Test is enabled starts from OpenVINO 2018R4");
+#endif
 
     Net net = readNet(_tf("net_two_inputs.xml"), _tf("net_two_inputs.bin"));
     int inpSize[] = {1, 2, 3};
@@ -992,17 +1029,29 @@ TEST_P(Test_DLDT_two_inputs, as_IR)
 
     net.setInput(firstInp, "data");
     net.setInput(secondInp, "second_input");
-    Mat out = net.forward();
+    net.setPreferableTarget(targetId);
+    if (targetId != DNN_TARGET_MYRIAD)
+    {
+        Mat out = net.forward();
 
-    Mat ref;
-    cv::add(firstInp, secondInp, ref, Mat(), CV_32F);
-    normAssert(out, ref);
+        Mat ref;
+        cv::add(firstInp, secondInp, ref, Mat(), CV_32F);
+        normAssert(out, ref);
+    }
+    else
+    {
+        // An assertion is expected because the model is in FP32 format but
+        // Myriad plugin supports only FP16 models.
+        ASSERT_ANY_THROW(net.forward());
+    }
 }
 
 TEST_P(Test_DLDT_two_inputs, as_backend)
 {
     static const float kScale = 0.5f;
     static const float kScaleInv = 1.0f / kScale;
+
+    Target targetId = get<2>(GetParam());
 
     Net net;
     LayerParams lp;
@@ -1012,9 +1061,9 @@ TEST_P(Test_DLDT_two_inputs, as_backend)
     int eltwiseId = net.addLayerToPrev(lp.name, lp.type, lp);  // connect to a first input
     net.connect(0, 1, eltwiseId, 1);  // connect to a second input
 
-    int inpSize[] = {1, 2, 3};
-    Mat firstInp(3, &inpSize[0], get<0>(GetParam()));
-    Mat secondInp(3, &inpSize[0], get<1>(GetParam()));
+    int inpSize[] = {1, 2, 3, 4};
+    Mat firstInp(4, &inpSize[0], get<0>(GetParam()));
+    Mat secondInp(4, &inpSize[0], get<1>(GetParam()));
     randu(firstInp, 0, 255);
     randu(secondInp, 0, 255);
 
@@ -1022,15 +1071,20 @@ TEST_P(Test_DLDT_two_inputs, as_backend)
     net.setInput(firstInp, "data", kScale);
     net.setInput(secondInp, "second_input", kScaleInv);
     net.setPreferableBackend(DNN_BACKEND_INFERENCE_ENGINE);
+    net.setPreferableTarget(targetId);
     Mat out = net.forward();
 
     Mat ref;
     addWeighted(firstInp, kScale, secondInp, kScaleInv, 0, ref, CV_32F);
-    normAssert(out, ref);
+    // Output values are in range [0, 637.5].
+    double l1 = (targetId == DNN_TARGET_OPENCL_FP16 || targetId == DNN_TARGET_MYRIAD) ? 0.06 : 1e-6;
+    double lInf = (targetId == DNN_TARGET_OPENCL_FP16 || targetId == DNN_TARGET_MYRIAD) ? 0.3 : 1e-5;
+    normAssert(out, ref, "", l1, lInf);
 }
 
 INSTANTIATE_TEST_CASE_P(/*nothing*/, Test_DLDT_two_inputs, Combine(
-  Values(CV_8U, CV_32F), Values(CV_8U, CV_32F)
+  Values(CV_8U, CV_32F), Values(CV_8U, CV_32F),
+  testing::ValuesIn(getAvailableTargets(DNN_BACKEND_INFERENCE_ENGINE))
 ));
 
 class UnsupportedLayer : public Layer
@@ -1047,8 +1101,6 @@ public:
     {
         return backendId == DNN_BACKEND_OPENCV;
     }
-
-    virtual void forward(std::vector<cv::Mat*> &inputs, std::vector<cv::Mat> &outputs, std::vector<cv::Mat> &internals) CV_OVERRIDE {}
 
     virtual void forward(cv::InputArrayOfArrays inputs, cv::OutputArrayOfArrays outputs, cv::OutputArrayOfArrays internals) CV_OVERRIDE {}
 };
@@ -1147,8 +1199,11 @@ public:
         return false;
     }
 
-    virtual void finalize(const std::vector<Mat*>& inputs, std::vector<Mat> &outputs) CV_OVERRIDE
+    virtual void finalize(InputArrayOfArrays, OutputArrayOfArrays outputs_arr) CV_OVERRIDE
     {
+        std::vector<Mat> outputs;
+        outputs_arr.getMatVector(outputs);
+
         if (!outWidth && !outHeight)
         {
             outHeight = outputs[0].size[2];
@@ -1157,9 +1212,22 @@ public:
     }
 
     // Implementation of this custom layer is based on https://github.com/cdmh/deeplab-public/blob/master/src/caffe/layers/interp_layer.cpp
-    virtual void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat>& internals) CV_OVERRIDE
+    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE
     {
-        Mat& inp = *inputs[0];
+        CV_TRACE_FUNCTION();
+        CV_TRACE_ARG_VALUE(name, "name", name.c_str());
+
+        if (inputs_arr.depth() == CV_16S)
+        {
+            forward_fallback(inputs_arr, outputs_arr, internals_arr);
+            return;
+        }
+
+        std::vector<Mat> inputs, outputs;
+        inputs_arr.getMatVector(inputs);
+        outputs_arr.getMatVector(outputs);
+
+        Mat& inp = inputs[0];
         Mat& out = outputs[0];
         const float* inpData = (float*)inp.data;
         float* outData = (float*)out.data;
@@ -1273,13 +1341,15 @@ TEST(Layer_Test_PoolingIndices, Accuracy)
     normAssert(indices, outputs[1].reshape(1, 5));
 }
 
-typedef testing::TestWithParam<tuple<Vec4i, int> > Layer_Test_ShuffleChannel;
+typedef testing::TestWithParam<tuple<Vec4i, int, tuple<Backend, Target> > > Layer_Test_ShuffleChannel;
 TEST_P(Layer_Test_ShuffleChannel, Accuracy)
 {
     Vec4i inpShapeVec = get<0>(GetParam());
     int group = get<1>(GetParam());
     ASSERT_EQ(inpShapeVec[1] % group, 0);
     const int groupSize = inpShapeVec[1] / group;
+    int backendId = get<0>(get<2>(GetParam()));
+    int targetId = get<1>(get<2>(GetParam()));
 
     Net net;
     LayerParams lp;
@@ -1293,21 +1363,25 @@ TEST_P(Layer_Test_ShuffleChannel, Accuracy)
     randu(inp, 0, 255);
 
     net.setInput(inp);
+    net.setPreferableBackend(backendId);
+    net.setPreferableTarget(targetId);
     Mat out = net.forward();
 
+    double l1 = (targetId == DNN_TARGET_OPENCL_FP16) ? 5e-2 : 1e-5;
+    double lInf = (targetId == DNN_TARGET_OPENCL_FP16) ? 7e-2 : 1e-4;
     for (int n = 0; n < inpShapeVec[0]; ++n)
     {
         for (int c = 0; c < inpShapeVec[1]; ++c)
         {
             Mat outChannel = getPlane(out, n, c);
             Mat inpChannel = getPlane(inp, n, groupSize * (c % group) + c / group);
-            normAssert(outChannel, inpChannel);
+            normAssert(outChannel, inpChannel, "", l1, lInf);
         }
     }
 }
 INSTANTIATE_TEST_CASE_P(/**/, Layer_Test_ShuffleChannel, Combine(
 /*input shape*/  Values(Vec4i(1, 6, 5, 7), Vec4i(3, 12, 1, 4)),
-/*group*/        Values(1, 2, 3, 6)
+/*group*/        Values(1, 2, 3, 6), dnnBackendsAndTargets(/*with IE*/ false)
 ));
 
 // Check if relu is not fused to convolution if we requested it's output
